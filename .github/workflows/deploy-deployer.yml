@@ -113,6 +113,8 @@ jobs:
 
   post-deploy:
     needs: deploy
+    # The skipped gate on staging would otherwise skip this job too.
+    if: always() && needs.deploy.result == 'success'
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
     steps:
