@@ -1,0 +1,42 @@
+# Switches the environment back to the previous Deployer release.
+name: Rollback
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      host:
+        type: string
+        required: true
+      runner:
+        type: string
+        default: self-hosted
+      php-version:
+        type: string
+        default: '8.3'
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+
+jobs:
+  rollback:
+    runs-on: ${{ inputs.runner }}
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          tools: composer:v2
+          coverage: none
+
+      - uses: deployphp/action@v1
+        with:
+          dep: rollback ${{ inputs.host }}
+          private-key: ${{ secrets.SSH_PRIVATE_KEY }}

@@ -1,0 +1,169 @@
+# Checks for every PR (and every push to main, which the production gate reads).
+# Each enabled input adds checks; the report job turns them into the traffic
+# light in the PR description and one GitHub check per result.
+name: PR checks
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label
+        type: string
+        default: self-hosted
+      php-version:
+        type: string
+        default: '8.3'
+      node-version:
+        type: string
+        default: '20'
+      composer:
+        description: composer validate + audit (and install when composer-install is true)
+        type: boolean
+        default: false
+      composer-install:
+        type: boolean
+        default: true
+      php-lint-paths:
+        description: Directories whose PHP files get a syntax check (space separated)
+        type: string
+        default: ''
+      npm-build-dirs:
+        description: Directories with their own package.json that must build (space separated)
+        type: string
+        default: ''
+      shopware-build:
+        description: Run `shopware-cli project ci .` (the same build the deploy uses)
+        type: boolean
+        default: false
+      node:
+        description: Root Node app checks (install, lint, typecheck, tests, build, audit)
+        type: boolean
+        default: false
+      node-lint-level:
+        type: string
+        default: soft
+      node-typecheck-level:
+        type: string
+        default: soft
+      node-test:
+        description: Test command, empty to skip
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 30
+    concurrency:
+      group: pr-checks-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: inputs.composer || inputs.php-lint-paths != '' || inputs.shopware-build
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          tools: composer:v2
+          coverage: none
+
+      - if: inputs.node || inputs.npm-build-dirs != '' || inputs.shopware-build
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      # PHP
+      - if: inputs.composer
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: composer validate
+          run: composer validate --no-check-publish --no-check-all
+      - if: inputs.composer && inputs.composer-install
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: composer install
+          run: composer install --no-interaction --no-progress --prefer-dist
+      - if: inputs.composer
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: composer audit
+          level: soft
+          run: composer audit --locked --no-interaction
+      - if: inputs.php-lint-paths != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: php syntax
+          run: |
+            out="$(find ${{ inputs.php-lint-paths }} -name '*.php' -not -path '*/vendor/*' -not -path '*/node_modules/*' -print0 \
+              | xargs -0 -n1 -P4 php -d display_errors=stderr -l 2>&1)" \
+              || { grep -v '^No syntax errors' <<<"$out"; exit 1; }
+            echo "$(grep -c '^No syntax errors' <<<"$out") files OK"
+
+      # Builds of sub-packages (e.g. Kirby plugins)
+      - if: inputs.npm-build-dirs != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: plugin builds
+          run: |
+            for dir in ${{ inputs.npm-build-dirs }}; do
+              echo "→ $dir"
+              (cd "$dir" && { [ -f package-lock.json ] && npm ci --no-audit --no-fund || npm install --no-audit --no-fund; } && npm run build)
+            done
+
+      # Shopware
+      - if: inputs.shopware-build
+        uses: shopware/shopware-cli-action@v1
+      - if: inputs.shopware-build
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: shopware build
+          run: shopware-cli project ci .
+
+      # Node app
+      - if: inputs.node
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: npm ci
+          run: npm ci --no-audit --no-fund
+      - if: inputs.node
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: lint
+          level: ${{ inputs.node-lint-level }}
+          run: npm run lint
+      - if: inputs.node
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: typecheck
+          level: ${{ inputs.node-typecheck-level }}
+          run: npm run typecheck
+      - if: inputs.node && inputs.node-test != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: tests
+          run: ${{ inputs.node-test }}
+      - if: inputs.node
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: build
+          run: npm run build
+      - if: inputs.node
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: npm audit
+          level: soft
+          run: npm audit --omit=dev --audit-level=high
+
+      - if: always()
+        uses: kickserve-de/ci/actions/report@v1
+        with:
+          title: PR checks
+          key: pr-checks
+          shas: ${{ github.event.pull_request.head.sha || github.sha }}
+          prs: ${{ github.event.pull_request.number }}
