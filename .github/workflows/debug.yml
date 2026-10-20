@@ -4,10 +4,11 @@ jobs:
   d:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
-      - run: echo "plain pwd=$(pwd)"; ls | head -5; echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-      - uses: ./actions/run-check
-        with:
-          name: dbg
-          run: |
-            echo "composite pwd=$(pwd)"; ls -la | head -8; ls -la "$GITHUB_WORKSPACE" | head -5
+      - run: |
+          for w in /home/kickserve/actions-runner*/github_runner_work/rotwild-*/rotwild-*; do
+            echo "=== $w"
+            ls "$w" | head -20 | tr '\n' ' '; echo
+            git -C "$w" config --list --show-origin | grep -iE "sparse|worktreeconfig" || echo "no sparse config"
+            cat "$w/.git/config.worktree" 2>/dev/null
+            cat "$w/.git/info/sparse-checkout" 2>/dev/null | head -3
+          done
