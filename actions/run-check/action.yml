@@ -1,0 +1,47 @@
+name: Run check
+description: >
+  Runs one check command and records its result. The step itself never fails:
+  the report action decides the overall outcome from all recorded results.
+
+inputs:
+  name:
+    description: Check name shown in the PR (e.g. "lint", "tests")
+    required: true
+  run:
+    description: Shell command(s) to run with bash -eo pipefail
+    required: true
+  level:
+    description: "hard: a failure turns the result red and fails the job; soft: a failure only turns it yellow"
+    default: hard
+  working-directory:
+    description: Directory to run the command in
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CHECK_NAME: ${{ inputs.name }}
+        CHECK_LEVEL: ${{ inputs.level }}
+        CHECK_RUN: ${{ inputs.run }}
+        RECORD: ${{ github.action_path }}/../../lib/record.sh
+      run: |
+        log="$(mktemp)"
+        start=$(date +%s)
+        echo "::group::$CHECK_NAME"
+        set +e
+        bash -eo pipefail -c "$CHECK_RUN" 2>&1 | tee "$log"
+        code=${PIPESTATUS[0]}
+        set -e
+        echo "::endgroup::"
+        seconds=$(( $(date +%s) - start ))
+        if [ "$code" -eq 0 ]; then
+          bash "$RECORD" "$CHECK_NAME" "$CHECK_LEVEL" pass "${seconds}s"
+        else
+          # Last non-empty output line as a hint; the full log stays in the job.
+          hint="$(grep -v '^[[:space:]]*$' "$log" | tail -n 1 | cut -c1-160)"
+          [ "$CHECK_LEVEL" = hard ] && echo "::error title=$CHECK_NAME::$hint" || echo "::warning title=$CHECK_NAME::$hint"
+          bash "$RECORD" "$CHECK_NAME" "$CHECK_LEVEL" fail "$hint"
+        fi

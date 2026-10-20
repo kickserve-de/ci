@@ -1,0 +1,44 @@
+name: Check gate
+description: >
+  Stops a deploy unless the latest run of the PR-checks workflow on this commit
+  finished successfully.
+
+inputs:
+  workflow:
+    description: File name of the repo's PR-checks workflow
+    default: pr.yml
+  sha:
+    default: ${{ github.sha }}
+  token:
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        WORKFLOW: ${{ inputs.workflow }}
+        SHA: ${{ inputs.sha }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        run="$(curl -fsS \
+          -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs?head_sha=$SHA&per_page=1" \
+          | jq -c '.workflow_runs[0] // empty')"
+        if [ -z "$run" ]; then
+          echo "::error::No $WORKFLOW run found for ${SHA:0:7}. Push to main runs it; wait for it or re-run it."
+          exit 1
+        fi
+        status="$(jq -r .status <<<"$run")"
+        conclusion="$(jq -r .conclusion <<<"$run")"
+        url="$(jq -r .html_url <<<"$run")"
+        if [ "$status" != completed ]; then
+          echo "::error::$WORKFLOW on ${SHA:0:7} is still $status: $url"
+          exit 1
+        fi
+        if [ "$conclusion" != success ]; then
+          echo "::error::$WORKFLOW on ${SHA:0:7} ended with $conclusion, deploy stopped: $url"
+          exit 1
+        fi
+        echo "Checks on ${SHA:0:7} are green: $url"
