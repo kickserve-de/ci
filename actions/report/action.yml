@@ -1,0 +1,43 @@
+name: Report
+description: >
+  Turns the recorded check results into a traffic light (green/yellow/red):
+  job summary, one GitHub check per result, and a block in each PR description.
+  Fails when a hard check failed.
+
+inputs:
+  title:
+    description: Heading of the report (e.g. "PR checks", "Staging", "Production")
+    required: true
+  key:
+    description: Marker key of the block in the PR description; one block per key
+    required: true
+  shas:
+    description: Commits to attach the checks to (space separated)
+    required: true
+  prs:
+    description: PR numbers whose description gets the block (space separated, may be empty)
+    default: ''
+  fail-on-hard:
+    description: Fail this step when a hard check failed
+    default: 'true'
+  token:
+    default: ${{ github.token }}
+
+outputs:
+  light:
+    description: green, yellow or red
+    value: ${{ steps.report.outputs.light }}
+
+runs:
+  using: composite
+  steps:
+    - id: report
+      shell: bash
+      env:
+        TITLE: ${{ inputs.title }}
+        KEY: ${{ inputs.key }}
+        SHAS: ${{ inputs.shas }}
+        PRS: ${{ inputs.prs }}
+        FAIL_ON_HARD: ${{ inputs.fail-on-hard }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "${{ github.action_path }}/report.sh"

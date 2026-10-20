@@ -1,0 +1,80 @@
+name: Post-deploy checks
+description: >
+  Smoke test and Lighthouse against a freshly deployed environment. Results go
+  to the job summary, to checks on the deployed commits and into the related PRs.
+
+inputs:
+  environment:
+    description: staging or production (staging also reports to the open PRs merged into it)
+    required: true
+  url:
+    description: Base URL of the environment, without trailing slash
+    required: true
+  smoke-paths:
+    description: Paths that must answer 2xx (space separated)
+    default: /
+  lighthouse-paths:
+    description: Paths to run Lighthouse on (space separated, empty to skip)
+    default: /
+  lighthouse-min:
+    description: Score (0-100) below which a category turns red
+    default: '50'
+  lighthouse-target:
+    description: Score (0-100) below which a category turns yellow
+    default: '80'
+  form-factor:
+    description: desktop or mobile
+    default: desktop
+  basic-auth:
+    description: user:password for HTTP basic auth (pass a secret)
+    default: ''
+  token:
+    default: ${{ github.token }}
+
+outputs:
+  light:
+    value: ${{ steps.report.outputs.light }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - id: chrome
+      if: inputs.lighthouse-paths != ''
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: stable
+
+    - shell: bash
+      env:
+        BASE_URL: ${{ inputs.url }}
+        SMOKE_PATHS: ${{ inputs.smoke-paths }}
+        LIGHTHOUSE_PATHS: ${{ inputs.lighthouse-paths }}
+        LIGHTHOUSE_MIN: ${{ inputs.lighthouse-min }}
+        LIGHTHOUSE_TARGET: ${{ inputs.lighthouse-target }}
+        FORM_FACTOR: ${{ inputs.form-factor }}
+        BASIC_AUTH: ${{ inputs.basic-auth }}
+        CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        RECORD: ${{ github.action_path }}/../../lib/record.sh
+      run: bash "${{ github.action_path }}/checks.sh"
+
+    - id: targets
+      shell: bash
+      env:
+        MODE: ${{ inputs.environment }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "${{ github.action_path }}/targets.sh"
+
+    - id: report
+      shell: bash
+      env:
+        TITLE: ${{ inputs.environment == 'production' && 'Production' || 'Staging' }}
+        KEY: ${{ inputs.environment }}
+        SHAS: ${{ steps.targets.outputs.shas }}
+        PRS: ${{ steps.targets.outputs.prs }}
+        FAIL_ON_HARD: 'true'
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "${{ github.action_path }}/../report/report.sh"
