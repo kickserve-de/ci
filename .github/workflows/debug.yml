@@ -1,0 +1,13 @@
+name: debug
+on: pull_request
+jobs:
+  d:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "plain pwd=$(pwd)"; ls | head -5; echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+      - uses: ./actions/run-check
+        with:
+          name: dbg
+          run: |
+            echo "composite pwd=$(pwd)"; ls -la | head -8; ls -la "$GITHUB_WORKSPACE" | head -5
