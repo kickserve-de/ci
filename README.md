@@ -9,7 +9,7 @@ PR, the same deploy flow, and the results as a traffic light in the PR.
 |---|---|---|
 | Every PR and every push to `main` | `pr-checks.yml`: composer, PHP syntax, plugin/Shopware/Node builds, lint, typecheck, tests, audits | Checks on the PR + block `PR checks` in the PR description |
 | Push to `staging` | `deploy-deployer.yml` to staging, then smoke test + Lighthouse | Checks on the merged branch head + block `Staging` in its open PR |
-| Manual "Run workflow" on `main` | Gate (PR checks on that commit must be green) → approval of the `production` environment → deploy → smoke + Lighthouse | Block `Production` in the merged PR, job summary |
+| Manual "Run workflow" on `main` | Gate (waits for the PR checks on that commit, they must be green) → deploy → smoke + Lighthouse | Block `Production` in the merged PR, job summary |
 | Manual "Run workflow" | `rollback-deployer.yml`: previous Deployer release | Job log |
 
 ## Traffic light
@@ -63,9 +63,8 @@ action file. Repo-specific deploy scripts (no Deployer) can still use the
 
 ## Repo setup
 
-1. Settings → Environments → `production`: add required reviewers (product owner or lead).
-2. Settings → Branches → `main`: require the status check `pr / checks`.
-3. Secrets: `SSH_PRIVATE_KEY` (deploy key), optional `BASIC_AUTH` (`user:password`) on the `staging` environment.
+1. Settings → Branches → `main`: require the status check `pr / checks`.
+2. Secrets: `SSH_PRIVATE_KEY` (deploy key), optional `BASIC_AUTH` (`user:password`) as a repo secret (the post-deploy job has no environment, so environment secrets are not visible to it).
 
 ## Versions
 
