@@ -1,7 +1,8 @@
 name: Check gate
 description: >
-  Stops a deploy unless the latest run of the PR-checks workflow on this commit
-  finished successfully.
+  Stops a deploy unless the PR-checks workflow on this commit finished
+  successfully. While that run is queued or still running (e.g. the deploy was
+  started right after the merge), it waits for the result instead of failing.
 
 inputs:
   workflow:
@@ -9,6 +10,9 @@ inputs:
     default: pr.yml
   sha:
     default: ${{ github.sha }}
+  wait-minutes:
+    description: How long to wait for a queued or running checks run
+    default: '30'
   token:
     default: ${{ github.token }}
 
@@ -19,26 +23,37 @@ runs:
       env:
         WORKFLOW: ${{ inputs.workflow }}
         SHA: ${{ inputs.sha }}
+        WAIT_MINUTES: ${{ inputs.wait-minutes }}
         GH_TOKEN: ${{ inputs.token }}
       run: |
-        run="$(curl -fsS \
-          -H "Authorization: Bearer $GH_TOKEN" \
-          -H "Accept: application/vnd.github+json" \
-          "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs?head_sha=$SHA&per_page=1" \
-          | jq -c '.workflow_runs[0] // empty')"
-        if [ -z "$run" ]; then
-          echo "::error::No $WORKFLOW run found for ${SHA:0:7}. Push to main runs it; wait for it or re-run it."
-          exit 1
-        fi
-        status="$(jq -r .status <<<"$run")"
-        conclusion="$(jq -r .conclusion <<<"$run")"
-        url="$(jq -r .html_url <<<"$run")"
-        if [ "$status" != completed ]; then
-          echo "::error::$WORKFLOW on ${SHA:0:7} is still $status: $url"
-          exit 1
-        fi
-        if [ "$conclusion" != success ]; then
-          echo "::error::$WORKFLOW on ${SHA:0:7} ended with $conclusion, deploy stopped: $url"
-          exit 1
-        fi
-        echo "Checks on ${SHA:0:7} are green: $url"
+        deadline=$(( $(date +%s) + WAIT_MINUTES * 60 ))
+        while :; do
+          run="$(curl -fsS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs?head_sha=$SHA&per_page=1" \
+            | jq -c '.workflow_runs[0] // empty')"
+          [ -n "$run" ] || run='{}'
+          status="$(jq -r '.status // "missing"' <<<"$run")"
+          url="$(jq -r '.html_url // ""' <<<"$run")"
+
+          if [ "$status" = completed ]; then
+            conclusion="$(jq -r .conclusion <<<"$run")"
+            if [ "$conclusion" != success ]; then
+              echo "::error::$WORKFLOW on ${SHA:0:7} ended with $conclusion, deploy stopped: $url"
+              exit 1
+            fi
+            echo "Checks on ${SHA:0:7} are green: $url"
+            exit 0
+          fi
+
+          # A push to main starts the checks; the run may not exist yet right after the merge.
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            [ "$status" = missing ] \
+              && echo "::error::No $WORKFLOW run for ${SHA:0:7} after ${WAIT_MINUTES} min, deploy stopped." \
+              || echo "::error::$WORKFLOW on ${SHA:0:7} still $status after ${WAIT_MINUTES} min, deploy stopped: $url"
+            exit 1
+          fi
+          echo "Waiting for $WORKFLOW on ${SHA:0:7} ($status) ${url}"
+          sleep 20
+        done
