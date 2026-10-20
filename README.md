@@ -58,7 +58,9 @@ jobs:
 ```
 
 All inputs and their defaults are documented at the top of each workflow and
-action file. Repo-specific deploy scripts (no Deployer) can still use the
+action file. Repos without a `composer.lock` that pins `deployer/deployer`
+(e.g. Node apps) pass `deployer-version` to both the deploy and the rollback
+workflow. Repo-specific deploy scripts (no Deployer) can still use the
 `check-gate` and `post-deploy` actions directly.
 
 ## Repo setup
