@@ -1,6 +1,7 @@
 # Deploy with Deployer (deploy.php in the repo), then smoke test and Lighthouse.
-# Production only deploys when the PR checks on the commit are green and, if the
-# "production" environment has required reviewers, after their approval.
+# Production only deploys when the PR checks on the commit are green (the gate
+# waits while they still run). Required reviewers on the "production" environment
+# would add an approval, but need GitHub Enterprise for private repos.
 name: Deploy
 
 on:
