@@ -64,7 +64,7 @@ jobs:
       group: pr-checks-${{ github.ref }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: kickserve-de/ci/actions/checkout@v1
 
       - if: inputs.composer || inputs.php-lint-paths != '' || inputs.shopware-build
         uses: shivammathur/setup-php@v2
