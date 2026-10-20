@@ -1,0 +1,127 @@
+# Deploy with Deployer (deploy.php in the repo), then smoke test and Lighthouse.
+# Production only deploys when the PR checks on the commit are green and, if the
+# "production" environment has required reviewers, after their approval.
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment (staging or production)
+        type: string
+        required: true
+      host:
+        description: Deployer host from deploy.php
+        type: string
+        required: true
+      url:
+        description: Public base URL of the environment, without trailing slash
+        type: string
+        required: true
+      runner:
+        type: string
+        default: self-hosted
+      php-version:
+        type: string
+        default: '8.3'
+      node-version:
+        type: string
+        default: '20'
+      shopware-cli:
+        description: Install shopware-cli before the build
+        type: boolean
+        default: false
+      build:
+        description: Commands run on the runner before `dep deploy`
+        type: string
+        default: composer install --no-interaction --no-progress --prefer-dist
+      gate-workflow:
+        description: PR-checks workflow file the production gate reads
+        type: string
+        default: pr.yml
+      smoke-paths:
+        type: string
+        default: /
+      lighthouse-paths:
+        type: string
+        default: /
+      lighthouse-min:
+        type: string
+        default: '50'
+      lighthouse-target:
+        type: string
+        default: '80'
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+      BASIC_AUTH:
+        description: user:password if the environment is behind basic auth
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  gate:
+    if: inputs.environment == 'production'
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: kickserve-de/ci/actions/check-gate@v1
+        with:
+          workflow: ${{ inputs.gate-workflow }}
+
+  deploy:
+    needs: gate
+    if: always() && (needs.gate.result == 'success' || needs.gate.result == 'skipped')
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.url }}
+    # Never two deploys to the same environment at once, never cancel one halfway.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          tools: composer:v2
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - if: inputs.shopware-cli
+        uses: shopware/shopware-cli-action@v1
+
+      - name: Build
+        run: ${{ inputs.build }}
+
+      # deploy.php uploads the checked-out tree, so the deployed code is exactly github.sha.
+      - name: Deploy
+        uses: deployphp/action@v1
+        with:
+          dep: deploy ${{ inputs.host }}
+          private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+  post-deploy:
+    needs: deploy
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: kickserve-de/ci/actions/post-deploy@v1
+        with:
+          environment: ${{ inputs.environment }}
+          url: ${{ inputs.url }}
+          smoke-paths: ${{ inputs.smoke-paths }}
+          lighthouse-paths: ${{ inputs.lighthouse-paths }}
+          lighthouse-min: ${{ inputs.lighthouse-min }}
+          lighthouse-target: ${{ inputs.lighthouse-target }}
+          basic-auth: ${{ secrets.BASIC_AUTH }}
