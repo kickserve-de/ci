@@ -1,0 +1,30 @@
+name: Checkout
+description: >
+  actions/checkout for reused self-hosted workspaces. Another workflow can leave a
+  sparse checkout behind (e.g. only .github/scripts), which actions/checkout does
+  not undo; this restores the full tree and fails instead of building or
+  deploying an incomplete one.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@v4
+
+    - shell: bash
+      run: |
+        skipped=$(git ls-files -v | grep -c '^S' || true)
+        if [ "$skipped" -gt 0 ] || [ "$(git config --get core.sparseCheckout)" = true ]; then
+          echo "::warning::Workspace had a sparse checkout ($skipped files hidden); restoring the full tree."
+          git config core.sparseCheckout true
+          mkdir -p .git/info
+          printf '/*\n' > .git/info/sparse-checkout
+          git read-tree -mu HEAD
+          git sparse-checkout disable
+        fi
+        skipped=$(git ls-files -v | grep -c '^S' || true)
+        missing=$(git ls-files --deleted | wc -l | tr -d ' ')
+        if [ "$skipped" -gt 0 ] || [ "$missing" -gt 0 ]; then
+          echo "::error::Checkout incomplete ($skipped hidden, $missing missing files)."
+          exit 1
+        fi
+        echo "Full tree checked out: $(git ls-files | wc -l | tr -d ' ') files at $(git rev-parse --short HEAD)"
