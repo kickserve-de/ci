@@ -25,6 +25,10 @@ on:
       php-version:
         type: string
         default: '8.3'
+      deployer-version:
+        description: Deployer version to download when the repo has no composer.lock with deployer/deployer (e.g. Node apps)
+        type: string
+        default: ''
       node-version:
         type: string
         default: '20'
@@ -112,6 +116,7 @@ jobs:
         with:
           dep: deploy ${{ inputs.host }}
           private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          deployer-version: ${{ inputs.deployer-version }}
 
   post-deploy:
     needs: deploy
