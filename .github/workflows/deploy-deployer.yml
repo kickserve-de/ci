@@ -68,6 +68,7 @@ jobs:
   gate:
     if: inputs.environment == 'production'
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 40
     steps:
       - uses: kickserve-de/ci/actions/check-gate@v1
         with:
