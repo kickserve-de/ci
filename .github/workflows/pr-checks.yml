@@ -49,6 +49,17 @@ on:
         description: Test command, empty to skip
         type: string
         default: ''
+      migrations:
+        description: List the migrations a PR adds (Shopware, Laravel, Doctrine, Magento patches, TYPO3) and check Shopware timestamps
+        type: boolean
+        default: true
+      translation-dirs:
+        description: Snippet directories with <name>.<locale>.json files to compare (space separated, globs allowed), empty to skip
+        type: string
+        default: ''
+      translation-level:
+        type: string
+        default: soft
 
 permissions:
   contents: read
@@ -159,6 +170,45 @@ jobs:
           name: npm audit
           level: soft
           run: npm audit --omit=dev --audit-level=high
+
+      # Content of the change itself
+      - if: inputs.migrations && github.event_name == 'pull_request'
+        uses: kickserve-de/ci/actions/run-check@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          name: migrations
+          pass-detail: output
+          run: |
+            files=()
+            for page in $(seq 1 30); do
+              mapfile -t batch < <(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100&page=$page" \
+                | jq -r '.[] | select(.status != "removed") | .filename')
+              [ ${#batch[@]} -gt 0 ] || break
+              files+=("${batch[@]}")
+            done
+            [ ${#files[@]} -gt 0 ] || { echo "no changed files"; exit 0; }
+            bash "$KICKSERVE_CI_LIB/check-migrations.sh" "${files[@]}"
+      - if: inputs.translation-dirs != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: translations
+          level: ${{ inputs.translation-level }}
+          pass-detail: output
+          run: |
+            shopt -s nullglob
+            dirs=()
+            for d in ${{ inputs.translation-dirs }}; do [ -d "$d" ] && dirs+=("$d"); done
+            [ ${#dirs[@]} -gt 0 ] || { echo "no snippet directories found"; exit 0; }
+            if out="$(bash "$KICKSERVE_CI_LIB/check-translations.sh" "${dirs[@]}")"; then
+              echo "${#dirs[@]} directories complete"
+            else
+              echo "$out"
+              echo "$(grep -c . <<<"$out") findings, first: $(head -n1 <<<"$out")"
+              exit 1
+            fi
 
       - if: always()
         uses: kickserve-de/ci/actions/report@v1
