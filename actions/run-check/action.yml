@@ -16,6 +16,9 @@ inputs:
   working-directory:
     description: Directory to run the command in
     default: .
+  pass-detail:
+    description: "time: the duration; output: the last output line (for checks that summarise themselves)"
+    default: time
 
 runs:
   using: composite
@@ -26,7 +29,9 @@ runs:
         CHECK_NAME: ${{ inputs.name }}
         CHECK_LEVEL: ${{ inputs.level }}
         CHECK_RUN: ${{ inputs.run }}
+        PASS_DETAIL: ${{ inputs.pass-detail }}
         RECORD: ${{ github.action_path }}/../../lib/record.sh
+        KICKSERVE_CI_LIB: ${{ github.action_path }}/../../lib
       run: |
         log="$(mktemp)"
         start=$(date +%s)
@@ -37,7 +42,9 @@ runs:
         set -e
         echo "::endgroup::"
         seconds=$(( $(date +%s) - start ))
-        if [ "$code" -eq 0 ]; then
+        if [ "$code" -eq 0 ] && [ "$PASS_DETAIL" = output ]; then
+          bash "$RECORD" "$CHECK_NAME" "$CHECK_LEVEL" pass "$(grep -v '^[[:space:]]*$' "$log" | tail -n 1 | cut -c1-160)"
+        elif [ "$code" -eq 0 ]; then
           bash "$RECORD" "$CHECK_NAME" "$CHECK_LEVEL" pass "${seconds}s"
         else
           # Last non-empty output line as a hint; the full log stays in the job.

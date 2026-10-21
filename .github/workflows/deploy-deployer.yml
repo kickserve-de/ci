@@ -56,6 +56,10 @@ on:
       lighthouse-target:
         type: string
         default: '80'
+      warmup-hits:
+        description: Requests per Lighthouse path before measuring (raise for load-balanced setups)
+        type: string
+        default: '2'
     secrets:
       SSH_PRIVATE_KEY:
         required: true
@@ -133,4 +137,5 @@ jobs:
           lighthouse-paths: ${{ inputs.lighthouse-paths }}
           lighthouse-min: ${{ inputs.lighthouse-min }}
           lighthouse-target: ${{ inputs.lighthouse-target }}
+          warmup-hits: ${{ inputs.warmup-hits }}
           basic-auth: ${{ secrets.BASIC_AUTH }}

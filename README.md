@@ -7,8 +7,8 @@ PR, the same deploy flow, and the results as a traffic light in the PR.
 
 | When | What runs | Where the result shows |
 |---|---|---|
-| Every PR and every push to `main` | `pr-checks.yml`: composer, PHP syntax, plugin/Shopware/Node builds, lint, typecheck, tests, audits | Checks on the PR + block `PR checks` in the PR description |
-| Push to `staging` | `deploy-deployer.yml` to staging, then smoke test + Lighthouse | Checks on the merged branch head + block `Staging` in its open PR |
+| Every PR and every push to `main` | `pr-checks.yml`: composer, PHP syntax, plugin/Shopware/Node builds, lint, typecheck, tests, audits, migrations in the PR, snippet translations | Checks on the PR + block `PR checks` in the PR description |
+| Push to `staging` | `deploy-deployer.yml` to staging, then smoke test + Lighthouse (each path warmed up first, `warmup-hits`) | Checks on the merged branch head + block `Staging` in its open PR |
 | Manual "Run workflow" on `main` | Gate (waits for the PR checks on that commit, they must be green) → deploy → smoke + Lighthouse | Block `Production` in the merged PR, job summary |
 | Manual "Run workflow" | `rollback-deployer.yml`: previous Deployer release | Job log |
 
@@ -61,7 +61,8 @@ All inputs and their defaults are documented at the top of each workflow and
 action file. Repos without a `composer.lock` that pins `deployer/deployer`
 (e.g. Node apps) pass `deployer-version` to both the deploy and the rollback
 workflow. Repo-specific deploy scripts (no Deployer) can still use the
-`check-gate` and `post-deploy` actions directly.
+`check-gate` and `post-deploy` actions directly. Repos deployed by AWS CodePipeline wait for
+the release with `actions/wait-codepipeline` before `post-deploy`.
 
 ## Repo setup
 

@@ -1,0 +1,45 @@
+name: Wait for CodePipeline
+description: >
+  Waits until an AWS CodePipeline has deployed a commit (every stage of the
+  execution that carries the sha succeeded), for repos that deploy outside
+  GitHub Actions. Needs AWS credentials with codepipeline:GetPipelineState in
+  the environment (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION).
+
+inputs:
+  pipeline:
+    description: Pipeline name
+    required: true
+  sha:
+    default: ${{ github.sha }}
+  timeout:
+    description: Seconds to wait before failing
+    default: '1800'
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PIPELINE: ${{ inputs.pipeline }}
+        SHA: ${{ inputs.sha }}
+        TIMEOUT: ${{ inputs.timeout }}
+      run: |
+        deadline=$(( $(date +%s) + TIMEOUT ))
+        while :; do
+          # Judged only when every stage belongs to the execution of stage 0 and that
+          # execution carries the sha; stale stages from older executions keep us waiting.
+          verdict="$(aws codepipeline get-pipeline-state --name "$PIPELINE" 2>/dev/null | jq -r --arg s "$SHA" '
+            (.stageStates[0].latestExecution.pipelineExecutionId // "") as $id
+            | if $id == "" then "wait"
+              elif ([.stageStates[0].actionStates[]?.currentRevision.revisionId // empty | select(startswith($s))] | length) == 0 then "wait"
+              elif ([.stageStates[] | select(.latestExecution.pipelineExecutionId != $id)] | length) > 0 then "wait"
+              elif ([.stageStates[] | select(.latestExecution.status == "Failed" or .latestExecution.status == "Stopped")] | length) > 0 then "failed"
+              elif ([.stageStates[] | select(.latestExecution.status != "Succeeded")] | length) == 0 then "ok"
+              else "wait" end')" || verdict=wait
+          case "$verdict" in
+            ok) echo "$PIPELINE deployed ${SHA:0:7}"; exit 0 ;;
+            failed) echo "::error::$PIPELINE failed for ${SHA:0:7}"; exit 1 ;;
+          esac
+          [ "$(date +%s)" -lt "$deadline" ] || { echo "::error::$PIPELINE did not deploy ${SHA:0:7} within ${TIMEOUT}s"; exit 1; }
+          sleep 30
+        done
