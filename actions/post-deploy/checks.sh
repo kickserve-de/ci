@@ -2,6 +2,7 @@
 # Smoke test and Lighthouse; every result is recorded, nothing fails here.
 set -euo pipefail
 
+# -b "": cookie engine on, so cookie-based redirects (locale, consent) do not loop.
 auth=()
 [ -n "$BASIC_AUTH" ] && auth=(-u "$BASIC_AUTH")
 
@@ -9,7 +10,7 @@ auth=()
 failed=()
 slowest="" slowest_time=0
 for path in $SMOKE_PATHS; do
-  out="$(curl -sS -L -o /dev/null --max-time 60 ${auth[@]+"${auth[@]}"} \
+  out="$(curl -sS -L -b "" -o /dev/null --max-time 60 ${auth[@]+"${auth[@]}"} \
     -w '%{http_code} %{time_total}' "$BASE_URL$path" 2>&1)" || out="000 0"
   code="${out%% *}" time="${out##* }"
   echo "$path → $code in ${time}s"
@@ -34,7 +35,7 @@ preset=()
 for path in $LIGHTHOUSE_PATHS; do
   # Warm the caches (one hit per node behind a load balancer) so the score is not a cold start.
   for _ in $(seq 1 "${WARMUP_HITS:-2}"); do
-    curl -sS -L -o /dev/null --max-time 60 ${auth[@]+"${auth[@]}"} "$BASE_URL$path" || true
+    curl -sS -L -b "" -o /dev/null --max-time 60 ${auth[@]+"${auth[@]}"} "$BASE_URL$path" || true
   done
   report="$(mktemp)"
   if ! npx --yes lighthouse@12.6.1 "$BASE_URL$path" ${preset[@]+"${preset[@]}"} --quiet \

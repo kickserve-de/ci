@@ -49,6 +49,18 @@ on:
         description: Test command, empty to skip
         type: string
         default: ''
+      node-package-manager:
+        description: npm or yarn (yarn 1, yarn.lock)
+        type: string
+        default: npm
+      node-install:
+        description: Install command, empty for the package manager default (npm ci / yarn install --frozen-lockfile)
+        type: string
+        default: ''
+      node-scripts:
+        description: Which of the package.json scripts lint, typecheck and build exist (space separated); the others are skipped
+        type: string
+        default: lint typecheck build
       migrations:
         description: List the migrations a PR adds (Shopware, Laravel, Doctrine, Magento patches, TYPO3) and check Shopware timestamps
         type: boolean
@@ -140,36 +152,41 @@ jobs:
       - if: inputs.node
         uses: kickserve-de/ci/actions/run-check@v1
         with:
-          name: npm ci
-          run: npm ci --no-audit --no-fund
-      - if: inputs.node
+          name: install
+          run: |
+            if [ -n "${{ inputs.node-install }}" ]; then ${{ inputs.node-install }}
+            elif [ "${{ inputs.node-package-manager }}" = yarn ]; then yarn install --frozen-lockfile --non-interactive
+            else npm ci --no-audit --no-fund; fi
+      - if: inputs.node && contains(format(' {0} ', inputs.node-scripts), ' lint ')
         uses: kickserve-de/ci/actions/run-check@v1
         with:
           name: lint
           level: ${{ inputs.node-lint-level }}
-          run: npm run lint
-      - if: inputs.node
+          run: ${{ inputs.node-package-manager }} run lint
+      - if: inputs.node && contains(format(' {0} ', inputs.node-scripts), ' typecheck ')
         uses: kickserve-de/ci/actions/run-check@v1
         with:
           name: typecheck
           level: ${{ inputs.node-typecheck-level }}
-          run: npm run typecheck
+          run: ${{ inputs.node-package-manager }} run typecheck
       - if: inputs.node && inputs.node-test != ''
         uses: kickserve-de/ci/actions/run-check@v1
         with:
           name: tests
           run: ${{ inputs.node-test }}
-      - if: inputs.node
+      - if: inputs.node && contains(format(' {0} ', inputs.node-scripts), ' build ')
         uses: kickserve-de/ci/actions/run-check@v1
         with:
           name: build
-          run: npm run build
+          run: ${{ inputs.node-package-manager }} run build
       - if: inputs.node
         uses: kickserve-de/ci/actions/run-check@v1
         with:
-          name: npm audit
+          name: audit
           level: soft
-          run: npm audit --omit=dev --audit-level=high
+          run: |
+            if [ "${{ inputs.node-package-manager }}" = yarn ]; then yarn audit --groups dependencies --level high
+            else npm audit --omit=dev --audit-level=high; fi
 
       # Content of the change itself
       - if: inputs.migrations && github.event_name == 'pull_request'
