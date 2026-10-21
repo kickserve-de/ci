@@ -22,6 +22,9 @@ inputs:
   lighthouse-target:
     description: Score (0-100) below which a category turns yellow
     default: '80'
+  warmup-hits:
+    description: Requests per Lighthouse path before measuring, so caches are warm (raise for load-balanced setups)
+    default: '2'
   form-factor:
     description: desktop or mobile
     default: desktop
@@ -55,6 +58,7 @@ runs:
         LIGHTHOUSE_PATHS: ${{ inputs.lighthouse-paths }}
         LIGHTHOUSE_MIN: ${{ inputs.lighthouse-min }}
         LIGHTHOUSE_TARGET: ${{ inputs.lighthouse-target }}
+        WARMUP_HITS: ${{ inputs.warmup-hits }}
         FORM_FACTOR: ${{ inputs.form-factor }}
         BASIC_AUTH: ${{ inputs.basic-auth }}
         CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
