@@ -61,7 +61,8 @@ All inputs and their defaults are documented at the top of each workflow and
 action file. Repos without a `composer.lock` that pins `deployer/deployer`
 (e.g. Node apps) pass `deployer-version` to both the deploy and the rollback
 workflow. Repo-specific deploy scripts (no Deployer) can still use the
-`check-gate` and `post-deploy` actions directly.
+`check-gate` and `post-deploy` actions directly. Repos deployed by AWS CodePipeline wait for
+the release with `actions/wait-codepipeline` before `post-deploy`.
 
 ## Repo setup
 
