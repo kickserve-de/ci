@@ -162,8 +162,9 @@ jobs:
         uses: kickserve-de/ci/actions/run-check@v1
         with:
           name: install
+          # ':' keeps the then-branch non-empty when node-install is unset (bash syntax error otherwise).
           run: |
-            if [ -n "${{ inputs.node-install }}" ]; then ${{ inputs.node-install }}
+            if [ -n "${{ inputs.node-install }}" ]; then ${{ inputs.node-install || ':' }}
             elif [ "${{ inputs.node-package-manager }}" = yarn ]; then yarn install --frozen-lockfile --non-interactive
             else npm ci --no-audit --no-fund; fi
       - if: inputs.node && contains(format(' {0} ', inputs.node-scripts), ' lint ')
