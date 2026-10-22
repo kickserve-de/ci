@@ -101,6 +101,15 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
+      # ubuntu-latest ships yarn 1, our self-hosted runners do not
+      - if: inputs.node && inputs.node-package-manager == 'yarn'
+        name: Provide yarn 1
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: |
+          command -v yarn >/dev/null || { corepack enable && yarn --version >/dev/null; } || npm install -g yarn@1
+          yarn --version
+
       # PHP
       - if: inputs.composer
         uses: kickserve-de/ci/actions/run-check@v1
