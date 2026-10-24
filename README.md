@@ -60,7 +60,10 @@ jobs:
 All inputs and their defaults are documented at the top of each workflow and
 action file. Repos without a `composer.lock` that pins `deployer/deployer`
 (e.g. Node apps) pass `deployer-version` to both the deploy and the rollback
-workflow. Repo-specific deploy scripts (no Deployer) can still use the
+workflow. When `deploy.php` reads secrets from the environment (e.g. to write
+a config file into each release), list their names in `env-secrets`; with
+`secrets: inherit` the job sees the secrets of its GitHub environment.
+Repo-specific deploy scripts (no Deployer) can still use the
 `check-gate` and `post-deploy` actions directly. Repos deployed by AWS CodePipeline wait for
 the release with `actions/wait-codepipeline` before `post-deploy`.
 
