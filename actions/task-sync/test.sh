@@ -117,14 +117,15 @@ check "title ID wins over commit ID" \
   "$(entries pull_request x "$(pr opened false develop "feat ($B)" feature/x)" "[\"$A\"]" | $JQ -r '.[0].task')" "$B"
 check "no ID anywhere → nothing" "$(entries pull_request x "$TRUNC" '["wip"]')" '[]'
 
-echo "── Merge comment"
-M=$($JQ -r -L . --arg now n -f merge-comment.jq <<< "$(entries pull_request x "$(pr closed true main "feat: \"X\" & <Y> ($A)" feature/x)" | $JQ -c '.[0]')")
-check "merge comment" "$M" '<body><strong>✅ Merged into main</strong>
-merger merged PR <a href="https://github.com/pr/7">#7 feat: "X" &amp; &lt;Y&gt;</a> from <code>feature/x</code> into <code>kickserve-de/repo:main</code>.
-<em>n</em></body>'
+echo "── PR entries (repo named, merge into main in the same log)"
+pritem() { $JQ -r -L . --arg t "$A" --arg now n -f log-items.jq <<< "$(entries pull_request x "$1")"; }
+check "PR opened" "$(pritem "$(pr opened false main "feat: X ($A)" feature/x)")" \
+  '<li><strong>[PR]</strong> n · opener · <code>kickserve-de/repo: feature/x → main</code> · <a href="https://github.com/pr/7">#7</a> feat: X</li>'
+check "merged into main" "$(pritem "$(pr closed true main "feat: \"X\" & <Y> ($A)" feature/x)")" \
+  '<li><strong>✅ [MERGED]</strong> n · merger · <code>kickserve-de/repo: feature/x → main</code> · <a href="https://github.com/pr/7">#7</a> feat: "X" &amp; &lt;Y&gt;</li>'
 
 echo "── Merging the Commit-Log"
-log() { $JQ -rn --arg new "$1" --argjson old "$2" --argjson max "$3" --arg header Commit-Log -f commit-log.jq; }
+log() { $JQ -rn --arg new "$1" --argjson old "$2" --argjson max "$3" --arg header Commit-Log --arg main main -f commit-log.jq; }
 check "create new" "$(log '<li>1</li>' null 50)" '<body><strong>Commit-Log</strong><ul><li>1</li></ul></body>'
 check "new before old" "$(log '<li>3</li><li>2</li>' '{"html_text":"<body><strong>Commit-Log</strong><ul><li>1</li></ul></body>"}' 50)" \
   '<body><strong>Commit-Log</strong><ul><li>3</li><li>2</li><li>1</li></ul></body>'
@@ -132,6 +133,20 @@ check "cap at max" "$(log '<li>3</li><li>2</li>' '{"html_text":"<ul><li>1</li><l
   '<body><strong>Commit-Log</strong><ul><li>3</li><li>2</li><li>1</li></ul></body>'
 check "quote entities from Asana normalized" "$(log '' '{"html_text":"<ul><li>&quot;a&quot; &#39;b&#39; &amp;</li></ul>"}' 50)" \
   "<body><strong>Commit-Log</strong><ul><li>\"a\" 'b' &amp;</li></ul></body>"
+
+push_li() { # sha, repo:branch, subject
+  echo "<li><strong>[PUSH]</strong> n · dev · <code>$2</code> · <a href=\"https://github.com/o/r/commit/$1\">${1:0:7}</a> $3</li>"; }
+P3=$(push_li ccccccc o/r:feat c)$(push_li bbbbbbb o/r:feat b)
+P1=$(push_li aaaaaaa o/r:feat a)
+check "adjacent pushes to one branch → one diff link" "$(log "$P3" "{\"html_text\":\"<ul>$(sed 's/"/\\"/g' <<< "$P1")</ul>\"}" 50)" \
+  '<body><strong>Commit-Log</strong><ul><li><strong>[PUSH]</strong> n · dev · <code>o/r:feat</code> · <a href="https://github.com/o/r/compare/aaaaaaa^...ccccccc">3 commits</a> c</li></ul></body>'
+check "collapsed entry keeps growing" "$(log "$(push_li ddddddd o/r:feat d)" "{\"html_text\":\"<ul><li><strong>[PUSH]</strong> n · dev · <code>o/r:feat</code> · <a href=\\\"https://github.com/o/r/compare/aaaaaaa^...ccccccc\\\">3 commits</a> c</li></ul>\"}" 50)" \
+  '<body><strong>Commit-Log</strong><ul><li><strong>[PUSH]</strong> n · dev · <code>o/r:feat</code> · <a href="https://github.com/o/r/compare/aaaaaaa^...ddddddd">4 commits</a> d</li></ul></body>'
+check "other branch or entry in between → not collapsed" \
+  "$(log "$(push_li bbbbbbb o/r:other b)<li>x</li>$(push_li aaaaaaa o/r:other a)" null 50 | grep -o 'commit/[a-f]*' | tr '\n' ' ')" "commit/bbbbbbb commit/aaaaaaa "
+MAINPR='<li><strong>[PR]</strong> n · dev · <code>o/r: feat → main</code> · <a href="https://github.com/pr/1">#1</a> x</li>'
+check "PRs into main survive the cap" "$(log "<li>3</li>$MAINPR<li>2</li>" "{\"html_text\":\"<ul><li>1</li>$(sed 's/"/\\"/g' <<< "$MAINPR")</ul>\"}" 2 | grep -o '<li>[0-9]</li>\|#1' | tr '\n' ' ')" \
+  "<li>3</li> #1 <li>2</li> #1 "
 
 echo "── PR description"
 body() { $JQ -rn --arg body "$1" --arg id "$A" -f pr-body.jq; }

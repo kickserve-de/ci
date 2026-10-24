@@ -1,5 +1,5 @@
 # Links commits and PRs to their task (actions/task-sync): task link in the PR
-# description, pinned Commit-Log and merge comments on the task.
+# description, one pinned Commit-Log comment on the task.
 # The tracker is chosen by org/repo settings only, so callers never change:
 #   secret   TASK_TOKEN  (falls back to ASANA_PAT)
 #   variable TASK_API    (falls back to ASANA_API; empty = Asana, Kickserve Work: https://<host>/api/1.0)
@@ -14,7 +14,7 @@ on:
         type: string
         default: ubuntu-latest
       pin:
-        description: Pin the Commit-Log and merge comments
+        description: Pin the Commit-Log comment
         type: boolean
         default: true
 

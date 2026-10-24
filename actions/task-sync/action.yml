@@ -1,8 +1,8 @@
 name: Task sync
 description: >
   Links commits and PRs to their task: puts the task link into the PR description
-  (TASK_ID placeholder) and keeps a pinned Commit-Log comment plus a merge comment
-  on the task. Works with any Asana-compatible API (Asana, Kickserve Work).
+  (TASK_ID placeholder) and keeps one pinned Commit-Log comment on the task with the
+  pushes, PRs and merges of every repo. Works with any Asana-compatible API (Asana, Kickserve Work).
   Needs no checkout: the filters always come from this action, never from the
   pushed branch, because they run with the task token in the environment.
 
@@ -17,16 +17,16 @@ inputs:
     description: Token to read PR commits and update the PR description
     default: ${{ github.token }}
   main-branch:
-    description: Branch whose merges get a merge comment (and move the task), empty for the default branch
+    description: Branch whose PRs always stay in the Commit-Log (and whose merges move the task), empty for the default branch
     default: ''
   max-entries:
-    description: Entries kept in the Commit-Log comment
+    description: Entries kept in the Commit-Log comment (PRs into the main branch always stay)
     default: '50'
   merge-section:
     description: Section the task moves to on merge into the main branch, empty = don't move
     default: ''
   pin:
-    description: Pin the Commit-Log and merge comments
+    description: Pin the Commit-Log comment
     default: 'true'
 
 runs:
@@ -98,6 +98,7 @@ runs:
         MAX_ENTRIES: ${{ inputs.max-entries }}
         MERGE_SECTION: ${{ inputs.merge-section }}
         PIN: ${{ inputs.pin }}
+        MAIN_BRANCH: ${{ inputs.main-branch || github.event.repository.default_branch }}
         ENTRIES: ${{ runner.temp }}/task-sync-entries.json
       run: |
         [ -z "$TASK_TOKEN" ] && { echo "::warning::No task token (secret TASK_TOKEN or ASANA_PAT), tasks not updated."; exit 0; }
