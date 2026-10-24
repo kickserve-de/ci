@@ -1,0 +1,104 @@
+name: Task sync
+description: >
+  Links commits and PRs to their task: puts the task link into the PR description
+  (TASK_ID placeholder) and keeps a pinned Commit-Log comment plus a merge comment
+  on the task. Works with any Asana-compatible API (Asana, Kickserve Work).
+  Needs no checkout: the filters always come from this action, never from the
+  pushed branch, because they run with the task token in the environment.
+
+inputs:
+  token:
+    description: Task tracker token (Asana PAT or Kickserve Work token); empty = only the PR description is updated
+    default: ''
+  api:
+    description: API base, empty for Asana (Kickserve Work https://<host>/api/1.0)
+    default: ''
+  github-token:
+    description: Token to read PR commits and update the PR description
+    default: ${{ github.token }}
+  main-branch:
+    description: Branch whose merges get a merge comment (and move the task), empty for the default branch
+    default: ''
+  max-entries:
+    description: Entries kept in the Commit-Log comment
+    default: '50'
+  merge-section:
+    description: Section the task moves to on merge into the main branch, empty = don't move
+    default: ''
+  pin:
+    description: Pin the Commit-Log and merge comments
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    # One entry per commit or PR (details in entries.jq). Task ID for commits: message → branch.
+    # For PRs: title → head branch → commits of the PR (GitHub may truncate the title, cutting off the ID).
+    - name: Collect entries
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        MAIN_BRANCH: ${{ inputs.main-branch || github.event.repository.default_branch }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        ENTRIES: ${{ runner.temp }}/task-sync-entries.json
+        DIR: ${{ github.action_path }}
+      run: |
+        COMMIT_MSGS='[]'
+        if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          COMMIT_MSGS=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" \
+            --jq '[.[].commit.message]' | jq -s 'add // []')
+        fi
+
+        jq -c -L "$DIR" \
+          --arg event "$GITHUB_EVENT_NAME" \
+          --arg ref "$GITHUB_REF_NAME" \
+          --arg repo "$GITHUB_REPOSITORY" \
+          --arg main "$MAIN_BRANCH" \
+          --argjson commit_msgs "$COMMIT_MSGS" \
+          -f "$DIR/entries.jq" "$GITHUB_EVENT_PATH" > "$ENTRIES"
+
+        jq -r '.[] | select(.task_source == "commits" and (.commit_tasks | length) > 1)
+          | "::warning::PR commits contain multiple task IDs (\(.commit_tasks | join(", "))), using \(.task)"' "$ENTRIES"
+
+        echo "Entries:"; jq . "$ENTRIES"
+
+    # Replace the PR template placeholder with the task link (details in pr-body.jq)
+    - name: Update PR description
+      if: github.event_name == 'pull_request' && github.event.action == 'opened'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        TASK_API: ${{ inputs.api }}
+        ENTRIES: ${{ runner.temp }}/task-sync-entries.json
+        DIR: ${{ github.action_path }}
+      run: |
+        TASK_ID=$(jq -r '.[0].task // empty' "$ENTRIES")
+        [ -z "$TASK_ID" ] && { echo "No task ID."; exit 0; }
+
+        # Fetch the current body instead of the one from the event, in case it was edited after opening
+        BODY=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.body // ""')
+
+        # Kickserve Work: link to <host>/tasks/<id> instead of Asana
+        BASE_ARGS=(); [ -n "$TASK_API" ] && BASE_ARGS=(--arg base "${TASK_API%/api/1.0}/tasks")
+        NEW_BODY=$(jq -rn --arg body "$BODY" --arg id "$TASK_ID" "${BASE_ARGS[@]}" -f "$DIR/pr-body.jq")
+
+        if [ "$NEW_BODY" = "$BODY" ]; then
+          echo "PR description already contains the task link."
+        else
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -f body="$NEW_BODY" > /dev/null
+          echo "PR description updated (task $TASK_ID)"
+        fi
+
+    - name: Update tasks
+      shell: bash
+      env:
+        TASK_TOKEN: ${{ inputs.token }}
+        TASK_API: ${{ inputs.api }}
+        MAX_ENTRIES: ${{ inputs.max-entries }}
+        MERGE_SECTION: ${{ inputs.merge-section }}
+        PIN: ${{ inputs.pin }}
+        ENTRIES: ${{ runner.temp }}/task-sync-entries.json
+      run: |
+        [ -z "$TASK_TOKEN" ] && { echo "::warning::No task token (secret TASK_TOKEN or ASANA_PAT), tasks not updated."; exit 0; }
+        "$GITHUB_ACTION_PATH/update.sh" "$ENTRIES"
