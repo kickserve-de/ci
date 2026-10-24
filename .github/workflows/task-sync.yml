@@ -4,6 +4,8 @@
 #   secret   TASK_TOKEN  (falls back to ASANA_PAT)
 #   variable TASK_API    (falls back to ASANA_API; empty = Asana, Kickserve Work: https://<host>/api/1.0)
 #   variables TASK_MERGE_SECTION, TASK_LOG_MAX, MAIN_BRANCH (optional)
+# `secrets: inherit` only reaches this workflow from repos in the kickserve-de org.
+# Repos in other orgs pass the token and the API base explicitly (see README).
 name: Task sync
 
 on:
@@ -17,6 +19,15 @@ on:
         description: Pin the Commit-Log comment
         type: boolean
         default: true
+      api:
+        description: API base, overrides the TASK_API variable (repos outside kickserve-de pass it)
+        type: string
+        default: ''
+    secrets:
+      TASK_TOKEN:
+        required: false
+      ASANA_PAT:
+        required: false
 
 jobs:
   sync:
@@ -25,7 +36,7 @@ jobs:
       - uses: kickserve-de/ci/actions/task-sync@v1
         with:
           token: ${{ secrets.TASK_TOKEN || secrets.ASANA_PAT }}
-          api: ${{ vars.TASK_API || vars.ASANA_API }}
+          api: ${{ inputs.api || vars.TASK_API || vars.ASANA_API }}
           main-branch: ${{ vars.MAIN_BRANCH }}
           max-entries: ${{ vars.TASK_LOG_MAX || vars.COMMIT_LOG_MAX || '50' }}
           merge-section: ${{ vars.TASK_MERGE_SECTION || vars.MERGE_SECTION }}
