@@ -40,6 +40,10 @@ on:
         description: Commands run on the runner before `dep deploy`
         type: string
         default: composer install --no-interaction --no-progress --prefer-dist
+      env-secrets:
+        description: Secret names (space or newline separated) exported as environment variables for `dep deploy`, e.g. when deploy.php writes a config file into the release (needs secrets inherit; sees the secrets of the GitHub environment)
+        type: string
+        default: ''
       gate-workflow:
         description: PR-checks workflow file the production gate reads
         type: string
@@ -113,6 +117,25 @@ jobs:
 
       - name: Build
         run: ${{ inputs.build }}
+
+      # A missing secret stays unset; deploy.php decides whether that is fatal.
+      - name: Export deploy secrets
+        if: inputs.env-secrets != ''
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          NAMES: ${{ inputs.env-secrets }}
+        run: |
+          for name in $NAMES; do
+            case "$name" in
+              [!A-Za-z_]*|*[!A-Za-z0-9_]*) echo "::error::invalid secret name: $name"; exit 1 ;;
+            esac
+            if ! jq -e --arg n "$name" 'has($n)' <<<"$SECRETS_JSON" >/dev/null; then
+              echo "::warning::secret $name is not set for environment ${{ inputs.environment }}"
+              continue
+            fi
+            delimiter="EOF_$(openssl rand -hex 16)"
+            { echo "$name<<$delimiter"; jq -r --arg n "$name" '.[$n]' <<<"$SECRETS_JSON"; echo "$delimiter"; } >> "$GITHUB_ENV"
+          done
 
       # deploy.php uploads the checked-out tree, so the deployed code is exactly github.sha.
       - name: Deploy
