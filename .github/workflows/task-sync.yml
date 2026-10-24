@@ -1,0 +1,32 @@
+# Links commits and PRs to their task (actions/task-sync): task link in the PR
+# description, one pinned Commit-Log comment on the task.
+# The tracker is chosen by org/repo settings only, so callers never change:
+#   secret   TASK_TOKEN  (falls back to ASANA_PAT)
+#   variable TASK_API    (falls back to ASANA_API; empty = Asana, Kickserve Work: https://<host>/api/1.0)
+#   variables TASK_MERGE_SECTION, TASK_LOG_MAX, MAIN_BRANCH (optional)
+name: Task sync
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Runner label
+        type: string
+        default: ubuntu-latest
+      pin:
+        description: Pin the Commit-Log comment
+        type: boolean
+        default: true
+
+jobs:
+  sync:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: kickserve-de/ci/actions/task-sync@feat/shared-task-sync-workflow-1219840118498147
+        with:
+          token: ${{ secrets.TASK_TOKEN || secrets.ASANA_PAT }}
+          api: ${{ vars.TASK_API || vars.ASANA_API }}
+          main-branch: ${{ vars.MAIN_BRANCH }}
+          max-entries: ${{ vars.TASK_LOG_MAX || vars.COMMIT_LOG_MAX || '50' }}
+          merge-section: ${{ vars.TASK_MERGE_SECTION || vars.MERGE_SECTION }}
+          pin: ${{ inputs.pin }}
