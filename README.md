@@ -7,7 +7,7 @@ PR, the same deploy flow, and the results as a traffic light in the PR.
 
 | When | What runs | Where the result shows |
 |---|---|---|
-| Every PR and every push to `main` | `pr-checks.yml`: composer, PHP syntax, plugin/Shopware/Node builds, lint, typecheck, tests, audits, migrations in the PR, snippet translations | Checks on the PR + block `PR checks` in the PR description |
+| Every PR and every push to `main` | `pr-checks.yml`: validate, install, audit, syntax, lint, typecheck, tests, build, migrations in the PR, snippet translations (the repo passes its own commands) | Checks on the PR + block `PR checks` in the PR description |
 | Push to `staging` | `deploy-deployer.yml` to staging, then smoke test + Lighthouse (each path warmed up first, `warmup-hits`) | Checks on the merged branch head + block `Staging` in its open PR |
 | Manual "Run workflow" on `main` | Gate (waits for the PR checks on that commit, they must be green) → deploy → smoke + Lighthouse | Block `Production` in the merged PR, job summary |
 | Manual "Run workflow" | `rollback-deployer.yml`: previous Deployer release | Job log |
@@ -36,10 +36,24 @@ jobs:
   pr:
     uses: kickserve-de/ci/.github/workflows/pr-checks.yml@v1
     with:
-      composer: true
-      php-lint-paths: site
+      php: true                 # PHP 8.4 + composer (php-version to change)
+      node: true                # Node 20 (node-version to change)
+      install: |
+        composer install --no-interaction --no-progress --prefer-dist
+        npm ci --no-audit --no-fund
+      syntax-paths: site        # PHP syntax check
+      lint: npm run lint        # soft by default (lint-level: hard)
+      typecheck: npm run typecheck
+      test: composer test
+      build: npm run build      # e.g. shopware-cli project ci . with shopware-cli: true
+      build-dirs: site/plugins/foo   # sub-packages built with npm, part of "build"
     secrets: inherit
 ```
+
+Every non-empty command is one check with a generic name (`install`, `lint`,
+`typecheck`, `tests`, `build`); `validate` (composer.json), `audit`, `syntax`,
+`migrations` and `translations` are built in. Lint and typecheck are warnings
+until a repo sets their level to `hard`.
 
 `.github/workflows/deploy-staging.yml` and `deploy-production.yml`:
 
