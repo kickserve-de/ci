@@ -15,7 +15,7 @@ on:
         default: self-hosted
       php-version:
         type: string
-        default: '8.3'
+        default: '8.4'
       deployer-version:
         description: Deployer version to download when the repo has no composer.lock with deployer/deployer (e.g. Node apps)
         type: string
