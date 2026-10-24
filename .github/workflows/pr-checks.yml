@@ -1,5 +1,6 @@
 # Checks for every PR (and every push to main, which the production gate reads).
-# Each enabled input adds checks; the report job turns them into the traffic
+# The caller turns on the runtimes it needs and passes its own commands; each
+# non-empty command is one check. The report step turns them into the traffic
 # light in the PR description and one GitHub check per result.
 name: PR checks
 
@@ -10,57 +11,72 @@ on:
         description: Runner label
         type: string
         default: self-hosted
+      # Runtimes and tools
+      php:
+        description: Set up PHP and composer
+        type: boolean
+        default: false
       php-version:
         type: string
-        default: '8.3'
+        default: '8.4'
+      php-extensions:
+        description: Extra PHP extensions for setup-php (comma separated)
+        type: string
+        default: ''
+      node:
+        description: Set up Node
+        type: boolean
+        default: false
       node-version:
         type: string
         default: '20'
-      composer:
-        description: composer validate + audit (and install when composer-install is true)
+      package-manager:
+        description: npm or yarn (yarn 1), used by the audit check
+        type: string
+        default: npm
+      shopware-cli:
+        description: Install shopware-cli (for a build command that uses it)
         type: boolean
         default: false
-      composer-install:
-        type: boolean
-        default: true
-      php-lint-paths:
+      # Commands: each non-empty one is a check of the same name
+      install:
+        description: Install dependencies (e.g. composer install, npm ci)
+        type: string
+        default: ''
+      lint:
+        type: string
+        default: ''
+      lint-level:
+        description: hard or soft
+        type: string
+        default: soft
+      typecheck:
+        type: string
+        default: ''
+      typecheck-level:
+        description: hard or soft
+        type: string
+        default: soft
+      test:
+        description: Test command; reported as the check "tests"
+        type: string
+        default: ''
+      build:
+        type: string
+        default: ''
+      build-dirs:
+        description: Sub-packages with their own package.json that must build (space separated), part of the check "build"
+        type: string
+        default: ''
+      # Built-in checks
+      syntax-paths:
         description: Directories whose PHP files get a syntax check (space separated)
         type: string
         default: ''
-      npm-build-dirs:
-        description: Directories with their own package.json that must build (space separated)
-        type: string
-        default: ''
-      shopware-build:
-        description: Run `shopware-cli project ci .` (the same build the deploy uses)
+      audit:
+        description: composer audit (with php and a composer.lock) and npm/yarn audit (with node), as a warning
         type: boolean
-        default: false
-      node:
-        description: Root Node app checks (install, lint, typecheck, tests, build, audit)
-        type: boolean
-        default: false
-      node-lint-level:
-        type: string
-        default: soft
-      node-typecheck-level:
-        type: string
-        default: soft
-      node-test:
-        description: Test command, empty to skip
-        type: string
-        default: ''
-      node-package-manager:
-        description: npm or yarn (yarn 1, yarn.lock)
-        type: string
-        default: npm
-      node-install:
-        description: Install command, empty for the package manager default (npm ci / yarn install --frozen-lockfile)
-        type: string
-        default: ''
-      node-scripts:
-        description: Which of the package.json scripts lint, typecheck and build exist (space separated); the others are skipped
-        type: string
-        default: lint typecheck build
+        default: true
       migrations:
         description: List the migrations a PR adds (Shopware, Laravel, Doctrine, Magento patches, TYPO3) and check Shopware timestamps
         type: boolean
@@ -89,20 +105,21 @@ jobs:
     steps:
       - uses: kickserve-de/ci/actions/checkout@v1
 
-      - if: inputs.composer || inputs.php-lint-paths != '' || inputs.shopware-build
+      - if: inputs.php
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ inputs.php-version }}
+          extensions: ${{ inputs.php-extensions }}
           tools: composer:v2
           coverage: none
 
-      - if: inputs.node || inputs.npm-build-dirs != '' || inputs.shopware-build
+      - if: inputs.node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
 
       # ubuntu-latest ships yarn 1, our self-hosted runners do not
-      - if: inputs.node && inputs.node-package-manager == 'yarn'
+      - if: inputs.node && inputs.package-manager == 'yarn'
         name: Provide yarn 1
         env:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
@@ -110,93 +127,72 @@ jobs:
           command -v yarn >/dev/null || { corepack enable && yarn --version >/dev/null; } || npm install -g yarn@1
           yarn --version
 
-      # PHP
-      - if: inputs.composer
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: composer validate
-          run: composer validate --no-check-publish --no-check-all
-      - if: inputs.composer && inputs.composer-install
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: composer install
-          run: composer install --no-interaction --no-progress --prefer-dist
-      - if: inputs.composer
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: composer audit
-          level: soft
-          run: composer audit --locked --no-interaction
-      - if: inputs.php-lint-paths != ''
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: php syntax
-          run: |
-            out="$(find ${{ inputs.php-lint-paths }} -name '*.php' -not -path '*/vendor/*' -not -path '*/node_modules/*' -print0 \
-              | xargs -0 -n1 -P4 php -d display_errors=stderr -l 2>&1)" \
-              || { grep -v '^No syntax errors' <<<"$out"; exit 1; }
-            echo "$(grep -c '^No syntax errors' <<<"$out") files OK"
-
-      # Builds of sub-packages (e.g. Kirby plugins)
-      - if: inputs.npm-build-dirs != ''
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: plugin builds
-          run: |
-            for dir in ${{ inputs.npm-build-dirs }}; do
-              echo "→ $dir"
-              (cd "$dir" && { [ -f package-lock.json ] && npm ci --no-audit --no-fund || npm install --no-audit --no-fund; } && npm run build)
-            done
-
-      # Shopware
-      - if: inputs.shopware-build
+      - if: inputs.shopware-cli
         uses: shopware/shopware-cli-action@v1
-      - if: inputs.shopware-build
+
+      - if: inputs.php && hashFiles('composer.json') != ''
         uses: kickserve-de/ci/actions/run-check@v1
         with:
-          name: shopware build
-          run: shopware-cli project ci .
-
-      # Node app
-      - if: inputs.node
+          name: validate
+          run: composer validate --no-check-publish --no-check-all
+      - if: inputs.install != ''
         uses: kickserve-de/ci/actions/run-check@v1
         with:
           name: install
-          # ':' keeps the then-branch non-empty when node-install is unset (bash syntax error otherwise).
-          run: |
-            if [ -n "${{ inputs.node-install }}" ]; then ${{ inputs.node-install || ':' }}
-            elif [ "${{ inputs.node-package-manager }}" = yarn ]; then yarn install --frozen-lockfile --non-interactive
-            else npm ci --no-audit --no-fund; fi
-      - if: inputs.node && contains(format(' {0} ', inputs.node-scripts), ' lint ')
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: lint
-          level: ${{ inputs.node-lint-level }}
-          run: ${{ inputs.node-package-manager }} run lint
-      - if: inputs.node && contains(format(' {0} ', inputs.node-scripts), ' typecheck ')
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: typecheck
-          level: ${{ inputs.node-typecheck-level }}
-          run: ${{ inputs.node-package-manager }} run typecheck
-      - if: inputs.node && inputs.node-test != ''
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: tests
-          run: ${{ inputs.node-test }}
-      - if: inputs.node && contains(format(' {0} ', inputs.node-scripts), ' build ')
-        uses: kickserve-de/ci/actions/run-check@v1
-        with:
-          name: build
-          run: ${{ inputs.node-package-manager }} run build
-      - if: inputs.node
+          run: ${{ inputs.install }}
+      - if: inputs.audit && (inputs.php || inputs.node)
         uses: kickserve-de/ci/actions/run-check@v1
         with:
           name: audit
           level: soft
           run: |
-            if [ "${{ inputs.node-package-manager }}" = yarn ]; then yarn audit --groups dependencies --level high
-            else npm audit --omit=dev --audit-level=high; fi
+            rc=0
+            if [ "${{ inputs.php }}" = true ] && [ -f composer.lock ]; then
+              composer audit --locked --no-interaction || rc=1
+            fi
+            if [ "${{ inputs.node }}" = true ] && [ -f package.json ]; then
+              if [ "${{ inputs.package-manager }}" = yarn ]; then yarn audit --groups dependencies --level high || rc=1
+              else npm audit --omit=dev --audit-level=high || rc=1; fi
+            fi
+            exit "$rc"
+      - if: inputs.syntax-paths != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: syntax
+          run: |
+            out="$(find ${{ inputs.syntax-paths }} -name '*.php' -not -path '*/vendor/*' -not -path '*/node_modules/*' -print0 \
+              | xargs -0 -n1 -P4 php -d display_errors=stderr -l 2>&1)" \
+              || { grep -v '^No syntax errors' <<<"$out"; exit 1; }
+            echo "$(grep -c '^No syntax errors' <<<"$out") files OK"
+      - if: inputs.lint != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: lint
+          level: ${{ inputs.lint-level }}
+          run: ${{ inputs.lint }}
+      - if: inputs.typecheck != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: typecheck
+          level: ${{ inputs.typecheck-level }}
+          run: ${{ inputs.typecheck }}
+      - if: inputs.test != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: tests
+          run: ${{ inputs.test }}
+      - if: inputs.build != '' || inputs.build-dirs != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        env:
+          BUILD_DIRS: ${{ inputs.build-dirs }}
+        with:
+          name: build
+          run: |
+            ${{ inputs.build || ':' }}
+            for dir in $BUILD_DIRS; do
+              echo "→ $dir"
+              (cd "$dir" && { [ -f package-lock.json ] && npm ci --no-audit --no-fund || npm install --no-audit --no-fund; } && npm run build)
+            done
 
       # Content of the change itself
       - if: inputs.migrations && github.event_name == 'pull_request'
