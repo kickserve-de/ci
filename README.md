@@ -11,6 +11,7 @@ PR, the same deploy flow, and the results as a traffic light in the PR.
 | Push to `staging` | `deploy-deployer.yml` to staging, then smoke test + Lighthouse (each path warmed up first, `warmup-hits`) | Checks on the merged branch head + block `Staging` in its open PR |
 | Manual "Run workflow" on `main` | Gate (waits for the PR checks on that commit, they must be green) → deploy → smoke + Lighthouse | Block `Production` in the merged PR, job summary |
 | Manual "Run workflow" | `rollback-deployer.yml`: previous Deployer release | Job log |
+| Every push and PR opened/merged | `task-sync.yml`: task ID from commit, branch or PR title | Task link in the PR description, one pinned Commit-Log comment on the task |
 
 ## Traffic light
 
@@ -80,6 +81,38 @@ a config file into each release), list their names in `env-secrets`; with
 Repo-specific deploy scripts (no Deployer) can still use the
 `check-gate` and `post-deploy` actions directly. Repos deployed by AWS CodePipeline wait for
 the release with `actions/wait-codepipeline` before `post-deploy`.
+
+## Task sync
+
+`.github/workflows/task-sync.yml`:
+
+```yaml
+name: Task sync
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    types: [opened, closed]
+permissions:
+  pull-requests: write
+  contents: read
+jobs:
+  sync:
+    uses: kickserve-de/ci/.github/workflows/task-sync.yml@v1
+    secrets: inherit
+```
+
+The task ID (16 digits Asana, 17 Kickserve Work) comes from the commit
+message, the branch name or the PR title. The `TASK_ID (…)` placeholder of the
+PR template is replaced with the task link. The tracker is set only by org or
+repo settings, so this file never changes when the tracker does:
+
+- secret `TASK_TOKEN` (falls back to `ASANA_PAT`)
+- variable `TASK_API` (falls back to `ASANA_API`; empty = Asana, Kickserve Work `https://<host>/api/1.0`)
+- optional variables `TASK_MERGE_SECTION` (move the task on merge into main), `TASK_LOG_MAX` (default 50), `MAIN_BRANCH`
+
+Inputs: `runner` (default `ubuntu-latest`), `pin` (default `true`). The jq
+filters are tested with `actions/task-sync/test.sh`.
 
 ## Repo setup
 
