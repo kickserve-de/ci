@@ -22,7 +22,7 @@ jobs:
   sync:
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: kickserve-de/ci/actions/task-sync@v1
+      - uses: kickserve-de/ci/actions/task-sync@feat/shared-task-sync-workflow-1219840118498147
         with:
           token: ${{ secrets.TASK_TOKEN || secrets.ASANA_PAT }}
           api: ${{ vars.TASK_API || vars.ASANA_API }}
