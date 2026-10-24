@@ -111,7 +111,18 @@ repo settings, so this file never changes when the tracker does:
 - variable `TASK_API` (falls back to `ASANA_API`; empty = Asana, Kickserve Work `https://<host>/api/1.0`)
 - optional variables `TASK_MERGE_SECTION` (move the task on merge into main), `TASK_LOG_MAX` (default 50), `MAIN_BRANCH`
 
-Inputs: `runner` (default `ubuntu-latest`), `pin` (default `true`). The jq
+Repos outside the kickserve-de org (rabe-bike, kitchenz, …) do not get secrets through
+`secrets: inherit`; they pass the token and the API base explicitly:
+
+```yaml
+    uses: kickserve-de/ci/.github/workflows/task-sync.yml@v1
+    with:
+      api: ${{ vars.TASK_API }}
+    secrets:
+      TASK_TOKEN: ${{ secrets.TASK_TOKEN || secrets.ASANA_PAT }}
+```
+
+Inputs: `runner` (default `ubuntu-latest`), `pin` (default `true`), `api`. The jq
 filters are tested with `actions/task-sync/test.sh`.
 
 ## Repo setup
