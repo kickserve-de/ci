@@ -66,7 +66,11 @@ on:
         default: '2'
     secrets:
       SSH_PRIVATE_KEY:
-        required: true
+        # Not required: GitHub checks required secrets for every job, also post-deploy,
+        # which has no environment and so cannot see a key kept only as an environment
+        # secret. The Deploy step still fails without it.
+        description: Deploy key (repo or environment secret)
+        required: false
       BASIC_AUTH:
         description: user:password if the environment is behind basic auth
         required: false
