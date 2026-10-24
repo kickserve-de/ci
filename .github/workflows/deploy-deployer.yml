@@ -41,7 +41,7 @@ on:
         type: string
         default: composer install --no-interaction --no-progress --prefer-dist
       env-secrets:
-        description: Secret names (space or newline separated) exported as environment variables for `dep deploy`, e.g. when deploy.php writes a config file into the release (needs secrets inherit; sees the secrets of the GitHub environment)
+        description: Secret names (space or newline separated) exported as environment variables for the build and `dep deploy`, e.g. when deploy.php writes a config file into the release (needs secrets inherit; sees the secrets of the GitHub environment)
         type: string
         default: ''
       gate-workflow:
@@ -115,10 +115,8 @@ jobs:
       - if: inputs.shopware-cli
         uses: shopware/shopware-cli-action@v1
 
-      - name: Build
-        run: ${{ inputs.build }}
-
       # A missing secret stays unset; deploy.php decides whether that is fatal.
+      # Exported before the build, so a build that bakes in a secret (e.g. an API token) sees it.
       - name: Export deploy secrets
         if: inputs.env-secrets != ''
         env:
@@ -136,6 +134,9 @@ jobs:
             delimiter="EOF_$(openssl rand -hex 16)"
             { echo "$name<<$delimiter"; jq -r --arg n "$name" '.[$n]' <<<"$SECRETS_JSON"; echo "$delimiter"; } >> "$GITHUB_ENV"
           done
+
+      - name: Build
+        run: ${{ inputs.build }}
 
       # deploy.php uploads the checked-out tree, so the deployed code is exactly github.sha.
       - name: Deploy
