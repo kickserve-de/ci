@@ -84,7 +84,7 @@ the release with `actions/wait-codepipeline` before `post-deploy`.
 ## Repo setup
 
 1. Settings → Branches → `main`: require the status check `pr / checks`.
-2. Secrets: `SSH_PRIVATE_KEY` (deploy key), optional `BASIC_AUTH` (`user:password`) as a repo secret (the post-deploy job has no environment, so environment secrets are not visible to it).
+2. Secrets: `SSH_PRIVATE_KEY` (deploy key, repo or environment secret), optional `BASIC_AUTH` (`user:password`) as a repo secret (the post-deploy job has no environment, so environment secrets are not visible to it).
 
 ## Versions
 
