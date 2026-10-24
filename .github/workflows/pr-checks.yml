@@ -23,6 +23,14 @@ on:
       composer-install:
         type: boolean
         default: true
+      php-extensions:
+        description: Extra PHP extensions for setup-php (comma separated)
+        type: string
+        default: ''
+      php-test:
+        description: PHP test command run after composer install (e.g. composer test), empty to skip
+        type: string
+        default: ''
       php-lint-paths:
         description: Directories whose PHP files get a syntax check (space separated)
         type: string
@@ -89,10 +97,11 @@ jobs:
     steps:
       - uses: kickserve-de/ci/actions/checkout@v1
 
-      - if: inputs.composer || inputs.php-lint-paths != '' || inputs.shopware-build
+      - if: inputs.composer || inputs.php-lint-paths != '' || inputs.php-test != '' || inputs.shopware-build
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ inputs.php-version }}
+          extensions: ${{ inputs.php-extensions }}
           tools: composer:v2
           coverage: none
 
@@ -136,6 +145,11 @@ jobs:
               | xargs -0 -n1 -P4 php -d display_errors=stderr -l 2>&1)" \
               || { grep -v '^No syntax errors' <<<"$out"; exit 1; }
             echo "$(grep -c '^No syntax errors' <<<"$out") files OK"
+      - if: inputs.php-test != ''
+        uses: kickserve-de/ci/actions/run-check@v1
+        with:
+          name: php tests
+          run: ${{ inputs.php-test }}
 
       # Builds of sub-packages (e.g. Kirby plugins)
       - if: inputs.npm-build-dirs != ''
