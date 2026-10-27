@@ -26,7 +26,7 @@ on:
         type: string
         default: '8.4'
       deployer-version:
-        description: Deployer version to download when the repo has no composer.lock with deployer/deployer (e.g. Node apps)
+        description: Deployer version to download; empty uses deployer/deployer from composer.lock (require or require-dev)
         type: string
         default: ''
       node-version:
@@ -142,13 +142,25 @@ jobs:
       - name: Build
         run: ${{ inputs.build }}
 
+      # deployphp/action only reads deployer/deployer from "packages" in composer.lock;
+      # as a dev dependency it is in "packages-dev" and missing after --no-dev.
+      - name: Deployer version
+        id: deployer
+        env:
+          VERSION: ${{ inputs.deployer-version }}
+        run: |
+          if [ -z "$VERSION" ] && [ -f composer.lock ]; then
+            VERSION=$(jq -r '[.packages[], (.["packages-dev"] // [])[]] | map(select(.name == "deployer/deployer")) | first | .version // empty' composer.lock)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       # deploy.php uploads the checked-out tree, so the deployed code is exactly github.sha.
       - name: Deploy
         uses: deployphp/action@v1
         with:
           dep: deploy ${{ inputs.host }}
           private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-          deployer-version: ${{ inputs.deployer-version }}
+          deployer-version: ${{ steps.deployer.outputs.version }}
 
   post-deploy:
     needs: deploy
