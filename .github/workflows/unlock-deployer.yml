@@ -1,0 +1,64 @@
+# Removes a stale Deployer lock (.dep/deploy.lock) after a deploy was killed
+# (cancelled, timed out, runner gone). Deploy failures inside Deployer unlock
+# themselves via the deploy:failed hook. Run it only when no deploy is running:
+# the lock may belong to a deploy started outside GitHub.
+name: Unlock
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      host:
+        type: string
+        required: true
+      runner:
+        type: string
+        default: self-hosted
+      php-version:
+        type: string
+        default: '8.4'
+      deployer-version:
+        description: Deployer version to download; empty uses deployer/deployer from composer.lock (require or require-dev)
+        type: string
+        default: ''
+    secrets:
+      SSH_PRIVATE_KEY:
+        # Not required, so the key can also be an environment-only secret.
+        required: false
+
+jobs:
+  unlock:
+    runs-on: ${{ inputs.runner }}
+    environment: ${{ inputs.environment }}
+    # Waits for a running GitHub deploy instead of unlocking under it.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: kickserve-de/ci/actions/checkout@v1
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          tools: composer:v2
+          coverage: none
+
+      # deployphp/action only reads deployer/deployer from "packages" in composer.lock;
+      # as a dev dependency it is in "packages-dev".
+      - name: Deployer version
+        id: deployer
+        env:
+          VERSION: ${{ inputs.deployer-version }}
+        run: |
+          if [ -z "$VERSION" ] && [ -f composer.lock ]; then
+            VERSION=$(jq -r '[.packages[], (.["packages-dev"] // [])[]] | map(select(.name == "deployer/deployer")) | first | .version // empty' composer.lock)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: deployphp/action@v1
+        with:
+          dep: deploy:unlock ${{ inputs.host }}
+          private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          deployer-version: ${{ steps.deployer.outputs.version }}
