@@ -73,9 +73,9 @@ jobs:
 ```
 
 All inputs and their defaults are documented at the top of each workflow and
-action file. Repos without a `composer.lock` that pins `deployer/deployer`
-(e.g. Node apps) pass `deployer-version` to both the deploy and the rollback
-workflow. When the build or `deploy.php` reads secrets from the environment (e.g. to write
+action file. The Deployer version comes from `deployer/deployer` in `composer.lock`
+(`require` or `require-dev`); repos without one (e.g. Node apps) pass
+`deployer-version` to both the deploy and the rollback workflow. When the build or `deploy.php` reads secrets from the environment (e.g. to write
 a config file into each release), list their names in `env-secrets`; with
 `secrets: inherit` the job sees the secrets of its GitHub environment.
 Repo-specific deploy scripts (no Deployer) can still use the
