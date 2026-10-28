@@ -123,8 +123,20 @@ Repos outside the kickserve-de org (rabe-bike, kitchenz, …) do not get secrets
       TASK_TOKEN: ${{ secrets.TASK_TOKEN || secrets.ASANA_PAT }}
 ```
 
-Inputs: `runner` (default `ubuntu-latest`), `pin` (default `true`), `api`. The jq
-filters are tested with `actions/task-sync/test.sh`.
+Inputs: `runner` (default `ubuntu-latest`), `pin` (default `true`), `api`. Run
+`actions/task-sync/test.sh` for jq and offline mocked-HTTP updater regression tests.
+
+API/transport failures and malformed read responses fail task sync; failed reads
+never trigger comment creation or other mutations for that task. Diagnostics name
+the request, task and HTTP status when available. For `403`, check that the configured
+token has access to the target task, workspace and project; this action cannot
+grant access. A subsequent `400` alone does not establish a permissions or pinning issue.
+
+Logs running `.github/scripts/asana/update.sh` use an older local copy, not the shared
+`actions/task-sync/update.sh`. Those consumers must migrate to the shared action
+with a release containing the fix (or update their local copy). Existing `@v1`
+callers benefit only once the compatible fix is released to `v1`; merging a fix
+does not itself update that tag.
 
 ## Repo setup
 

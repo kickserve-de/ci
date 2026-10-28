@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for the jq filters of the task-sync action.
+# Tests for the jq filters and offline updater integration of the task-sync action.
 # Usage: actions/task-sync/test.sh   (other jq binary: JQ=/path/to/jq actions/task-sync/test.sh)
 set -uo pipefail
 
@@ -159,4 +159,5 @@ check "link already present → unchanged" "$(body "See $LINK")" "See $LINK"
 
 echo
 echo "$PASS passed, $FAIL failed ($($JQ --version))"
-[ "$FAIL" -eq 0 ]
+[ "$FAIL" -eq 0 ] || exit 1
+bash "$PWD/test-update.sh"
