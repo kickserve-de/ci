@@ -130,6 +130,7 @@ filters are tested with `actions/task-sync/test.sh`.
 
 1. Settings → Branches → `main`: require the status check `pr / checks`.
 2. Secrets: `SSH_PRIVATE_KEY` (deploy key, repo or environment secret), optional `BASIC_AUTH` (`user:password`) as a repo secret (the post-deploy job has no environment, so environment secrets are not visible to it).
+3. Behind Cloudflare (smoke test gets `403` with `cf-mitigated: challenge`): repo secret `CHECK_TOKEN` with a random value (kept in 1Password as `<repo> check token`), and a WAF custom rule with action Skip for `http.host eq "<host>" and any(http.request.headers["x-kickserve-check"][*] eq "<value>")`.
 
 ## Versions
 
