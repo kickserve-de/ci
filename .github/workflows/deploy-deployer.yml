@@ -25,6 +25,10 @@ on:
       php-version:
         type: string
         default: '8.4'
+      php-extensions:
+        description: Extra PHP extensions for setup-php (comma separated), on top of the ext-* requirements in composer.json and composer.lock
+        type: string
+        default: ''
       deployer-version:
         description: Deployer version to download; empty uses deployer/deployer from composer.lock (require or require-dev)
         type: string
@@ -106,9 +110,28 @@ jobs:
     steps:
       - uses: kickserve-de/ci/actions/checkout@v1
 
+      # PHP extensions from ext-* in composer.json and in the locked packages (no dev, like the build),
+      # plus php-extensions; setup-php skips the ones already built in.
+      - name: PHP extensions
+        id: ext
+        env:
+          EXTRA: ${{ inputs.php-extensions }}
+        run: |
+          declared=""
+          if [ -f composer.json ]; then
+            declared+=$(jq -r '.require // {} | keys[]' composer.json)$'\n'
+          fi
+          if [ -f composer.lock ]; then
+            declared+=$(jq -r '[.packages[]] | map(.require // {} | keys[]) | .[]' composer.lock)
+          fi
+          list=$( { printf '%s\n' "$declared" | sed -n 's/^ext-//p'; printf '%s\n' ${EXTRA//,/ }; } | sed '/^$/d' | tr 'A-Z' 'a-z' | sort -u | paste -sd, - )
+          echo "PHP extensions: ${list:-none}"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ inputs.php-version }}
+          extensions: ${{ steps.ext.outputs.list }}
           tools: composer:v2
           coverage: none
 

@@ -38,7 +38,7 @@ jobs:
   pr:
     uses: kickserve-de/ci/.github/workflows/pr-checks.yml@v1
     with:
-      php: true                 # PHP 8.4 + composer (php-version to change)
+      php: true                 # PHP 8.4 + composer + the ext-* composer requires (php-version, php-extensions)
       node: true                # Node 20 (node-version to change)
       install: |
         composer install --no-interaction --no-progress --prefer-dist
