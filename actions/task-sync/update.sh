@@ -76,7 +76,8 @@ comments() {
       (.data | type == "array") and
       all(.data[]; type == "object" and (.type | type == "string") and
         if .type == "comment" then
-          (.gid | id) and (.created_by.gid | id) and has("html_text") and
+          (.gid | id) and
+          (.created_by == null or (.created_by | type == "object" and (.gid | id))) and has("html_text") and
           (.html_text | type == "string" or type == "null")
         else true end) and
       has("next_page") and (.next_page == null or
@@ -98,7 +99,7 @@ section_moves() {
   local task=$1 name=$2 memberships project current section response M
   response=$(read_api "/tasks/$task?opt_fields=memberships.project.gid,memberships.section.name" '
     (.data | type == "object") and (.data.memberships | type == "array") and
-    all(.data.memberships[]; type == "object" and (.project.gid | id) and has("section") and
+    all(.data.memberships[]; type == "object" and (.project.gid | id) and
       (.section == null or (.section | type == "object" and (.name | type == "string"))))
   ') || return $?
   memberships=$(jq -c '.data.memberships[]' <<< "$response") || return $?
@@ -118,45 +119,56 @@ section_moves() {
   done <<< "$memberships"
 }
 
-USER=$(read_api /users/me '(.data | type == "object") and (.data.gid | id)') || exit $?
-BOT_GID=$(jq -r '.data.gid' <<< "$USER") || exit $?
+ME=$(read_api /users/me '(.data | type == "object") and (.data.gid | id)') || exit $?
+BOT_GID=$(jq -r '.data.gid' <<< "$ME") || exit $?
 
-for TASK in $(jq -r '[.[].task] | unique[]' "$ENTRIES"); do
+sync_task() {
+  local TASK=$1 MOVES NEW_ITEMS COMMENTS STORY HTML PAYLOAD SECTION PROJECT MOVE_PAYLOAD STORY_GID
   echo "── Task $TASK"
 
   # Merge into main → optionally move the task
   MOVES=""
   if [ -n "$MERGE_SECTION" ] && jq -e --arg t "$TASK" 'any(.[]; .task == $t and .type == "MERGED_MAIN")' "$ENTRIES" > /dev/null; then
-    MOVES=$(section_moves "$TASK" "$MERGE_SECTION") || exit $?
+    MOVES=$(section_moves "$TASK" "$MERGE_SECTION") || return $?
   fi
 
   # Everything → into the pinned Commit-Log comment (newest on top)
-  NEW_ITEMS=$($JQ -r --arg t "$TASK" --arg now "$NOW" -f "$DIR/log-items.jq" "$ENTRIES") || exit $?
+  NEW_ITEMS=$($JQ -r --arg t "$TASK" --arg now "$NOW" -f "$DIR/log-items.jq" "$ENTRIES") || return $?
   if [ -n "$NEW_ITEMS" ]; then
-    COMMENTS=$(comments "$TASK") || exit $?
+    COMMENTS=$(comments "$TASK") || return $?
     STORY=$(jq -sc --arg bot "$BOT_GID" --arg h "$HEADER" \
       '[.[] | select(.created_by.gid == $bot and (.html_text // "" | contains($h)))] | first // empty' \
-      <<< "$COMMENTS") || exit $?
+      <<< "$COMMENTS") || return $?
 
     HTML=$(jq -rn --arg new "$NEW_ITEMS" --argjson old "${STORY:-null}" \
-      --argjson max "$MAX_ENTRIES" --arg header "$HEADER" --arg main "$MAIN_BRANCH" -f "$DIR/commit-log.jq") || exit $?
-    PAYLOAD=$(jq -n --arg h "$HTML" --argjson pin "$PIN" '{data: {html_text: $h, is_pinned: $pin}}') || exit $?
+      --argjson max "$MAX_ENTRIES" --arg header "$HEADER" --arg main "$MAIN_BRANCH" -f "$DIR/commit-log.jq") || return $?
+    PAYLOAD=$(jq -n --arg h "$HTML" --argjson pin "$PIN" '{data: {html_text: $h, is_pinned: $pin}}') || return $?
   fi
 
   while read -r SECTION PROJECT; do
     [ -z "$SECTION" ] && continue
-    MOVE_PAYLOAD=$(jq -n --arg t "$TASK" '{data: {task: $t}}') || exit $?
-    api POST "/sections/$SECTION/addTask" -d "$MOVE_PAYLOAD" > /dev/null || exit $?
+    MOVE_PAYLOAD=$(jq -n --arg t "$TASK" '{data: {task: $t}}') || return $?
+    api POST "/sections/$SECTION/addTask" -d "$MOVE_PAYLOAD" > /dev/null || return $?
     echo "Moved to section \"$MERGE_SECTION\" in project $PROJECT"
   done <<< "$MOVES"
-  [ -z "$NEW_ITEMS" ] && continue
+  [ -z "$NEW_ITEMS" ] && return 0
 
   if [ -n "$STORY" ]; then
-    STORY_GID=$(jq -r '.gid' <<< "$STORY") || exit $?
-    api PUT "/stories/$STORY_GID" -d "$PAYLOAD" > /dev/null || exit $?
+    STORY_GID=$(jq -r '.gid' <<< "$STORY") || return $?
+    api PUT "/stories/$STORY_GID" -d "$PAYLOAD" > /dev/null || return $?
     echo "Commit-Log updated"
   else
-    api POST "/tasks/$TASK/stories" -d "$PAYLOAD" > /dev/null || exit $?
+    api POST "/tasks/$TASK/stories" -d "$PAYLOAD" > /dev/null || return $?
     echo "Commit-Log created"
   fi
+}
+
+STATUS=0
+TASKS=$(jq -r '[.[].task] | unique[]' "$ENTRIES") || exit $?
+for TASK in $TASKS; do
+  sync_task "$TASK" || {
+    RC=$?
+    [ "$STATUS" -ne 0 ] || STATUS=$RC
+  }
 done
+exit "$STATUS"

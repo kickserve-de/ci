@@ -125,10 +125,12 @@ Repos outside the kickserve-de org (rabe-bike, kitchenz, …) do not get secrets
 
 Inputs: `runner` (default `ubuntu-latest`), `pin` (default `true`), `api`. Run
 `actions/task-sync/test.sh` for jq and offline mocked-HTTP updater regression tests.
+The `Task-sync tests` workflow runs them on relevant pull requests and pushes to main.
 
 API/transport failures and malformed read responses fail task sync; failed reads
-never trigger comment creation or other mutations for that task. Diagnostics name
-the request, task and HTTP status when available. For `403`, check that the configured
+never trigger comment creation or other mutations for that task. Independent tasks
+still sync; the run exits with the first failure status after processing all tasks.
+Diagnostics name the request, task and HTTP status when available. For `403`, check that the configured
 token has access to the target task, workspace and project; this action cannot
 grant access. A subsequent `400` alone does not establish a permissions or pinning issue.
 
