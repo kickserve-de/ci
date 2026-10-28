@@ -1,0 +1,30 @@
+name: Task-sync tests
+
+on:
+  pull_request:
+    paths:
+      - 'actions/task-sync/**'
+      - '.github/workflows/task-sync-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'actions/task-sync/**'
+      - '.github/workflows/task-sync-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Shell syntax
+        run: bash -n actions/task-sync/{update.sh,test.sh,test-update.sh,tests/mock-curl.sh}
+      - name: ShellCheck
+        run: shellcheck actions/task-sync/{update.sh,test-update.sh,tests/mock-curl.sh}
+      - name: jq and offline updater tests
+        run: bash actions/task-sync/test.sh

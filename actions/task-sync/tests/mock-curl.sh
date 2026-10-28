@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Offline curl replacement: consume one queued response per request.
 set -euo pipefail
+if [ -n "${MOCK_EXPECT_USER:-}" ] && [ "${USER:-}" != "$MOCK_EXPECT_USER" ]; then
+  exit 2
+fi
 method=GET url="" payload="" write_out=false
 while [ "$#" -gt 0 ]; do
   case "$1" in

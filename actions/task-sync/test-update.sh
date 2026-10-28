@@ -12,7 +12,7 @@ export PATH="$TMP/bin:$PATH" TASK_TOKEN=offline-secret-sentinel
 export TASK_API="" MERGE_SECTION="" PIN=true MAX_ENTRIES=50 MAIN_BRANCH=main
 PASS=0 FAIL=0
 TASK=1219595984767913
-export COMMENTS="/tasks/$TASK/stories" RC=0
+export COMMENTS="/tasks/$TASK/stories" RC=0 EXPECTED_METHOD="" EXPECTED_RC=0
 ENTRY='[{"task":"1219595984767913","type":"PUSH","author":"dev","repo":"o/r","branch":"feature","link":"https://github.com/o/r/commit/abc","sha":"abc","subject":"fix"}]'
 EXISTING='{"data":[{"gid":"42","type":"comment","created_by":{"gid":"7"},"html_text":"<body>Commit-Log<ul><li>old</li></ul></body>"}],"next_page":null}'
 
@@ -74,10 +74,27 @@ check "repeated pagination offset fails without writes" \
   '[[ $RC != 0 ]] && no_writes && clean_errors && grep -q "Repeated comments pagination" "$MOCK_DIR/err"'
 
 for body in 'not json' '{}' '{"data":null}' '{"data":{}}' \
-  '{"data":[{"type":"comment"}]}' '{"data":[],"next_page":{}}' \
+  '{"data":[{"type":"comment"}]}' \
+  '{"data":[{"gid":"8","type":"comment","created_by":{"gid":7},"html_text":null}],"next_page":null}' \
+  '{"data":[],"next_page":{}}' \
   '{"data":[],"next_page":{"offset":7}}' '{"data":[]} {"data":[]}'; do
   start; user; respond "$body"; run
   check "invalid comments rejected: $body" '[[ $RC != 0 ]] && no_writes && clean_errors && grep -q "Invalid API response.*GET" "$MOCK_DIR/err"'
+done
+
+for author in null '{}'; do
+  for existing in false true; do
+    start; user
+    respond "$(jq --argjson author "$author" --argjson existing "$existing" '
+      .data = (if $existing then .data else [] end) |
+      .data += [{gid:"8",type:"comment",html_text:"Commit-Log",created_by:$author}] |
+      if $author == {} then del(.data[-1].created_by) else . end
+    ' <<< "$EXISTING")"
+    respond '{"data":{}}'; run
+    if $existing; then EXPECTED_METHOD=PUT; else EXPECTED_METHOD=POST; fi
+    check "unknown comment author ($author) allows existing=$existing" \
+      '[[ $RC == 0 ]] && [[ ! -s "$MOCK_DIR/err" ]] && jq -se --arg method "$EXPECTED_METHOD" "length == 3 and .[2].method == \$method" "$MOCK_DIR/requests" > /dev/null'
+  done
 done
 
 for body in 'not json' '{}' '{"data":{"gid":null}}' '{"data":{"gid":7}}'; do
@@ -141,7 +158,7 @@ for read_path in memberships sections comments; do
 done
 
 for body in '{}' '{"data":{"memberships":null}}' '{"data":{"memberships":[{"project":{}}]}}' \
-  '{"data":{"memberships":[{"project":{"gid":"9"}}]}}'; do
+  '{"data":{"memberships":[{"project":{"gid":"9"},"section":7}]}}'; do
   start; MERGE_SECTION="done"
   printf '%s\n' "$MERGED" > "$MOCK_DIR/entries.json"
   user; respond "$body"; run
@@ -160,6 +177,15 @@ user; respond "$MEMBERS"; respond "$SECTIONS"; empty
 respond '{"data":{}}'; respond '{"data":{}}'; run
 check "merge section remains case-insensitive and writes after reads" \
   '[[ $RC == 0 ]] && jq -se "length == 6 and all(.[0:4][]; .method == \"GET\") and (.[4].url | endswith(\"/sections/10/addTask\")) and (.[4].payload | fromjson | .data.task == \"1219595984767913\") and .[5].method == \"POST\"" "$MOCK_DIR/requests" > /dev/null'
+
+for membership in '{"project":{"gid":"9"}}' '{"project":{"gid":"9"},"section":null}'; do
+  start; MERGE_SECTION="done"
+  printf '%s\n' "$MERGED" > "$MOCK_DIR/entries.json"
+  user; respond "{\"data\":{\"memberships\":[$membership]}}"; respond "$SECTIONS"; empty
+  respond '{"data":{}}'; respond '{"data":{}}'; run
+  check "absent section permits planned move: $membership" \
+    '[[ $RC == 0 ]] && [[ ! -s "$MOCK_DIR/err" ]] && jq -se "length == 6 and (.[4].url | endswith(\"/sections/10/addTask\")) and .[5].method == \"POST\"" "$MOCK_DIR/requests" > /dev/null'
+done
 
 start; MERGE_SECTION="done"
 printf '%s\n' "$MERGED" > "$MOCK_DIR/entries.json"
@@ -192,6 +218,50 @@ respond '{"errors":[{"message":"Move denied"}]}' 400 22
 run
 check "section write failure stops dependent writes and reports endpoint" \
   '[[ $RC == 22 ]] && [[ $(wc -l < "$MOCK_DIR/requests") == 5 ]] && clean_errors && grep -q "POST /sections/10/addTask.*HTTP 400.*Move denied" "$MOCK_DIR/err"'
+
+SECOND_TASK=1219595984767914
+for failure in comments later-page malformed memberships sections move-write comment-write; do
+  start
+  jq --arg second "$SECOND_TASK" '. + [.[0] | .task = $second]' <<< "$MERGED" > "$MOCK_DIR/entries.json"
+  user
+  case "$failure" in
+    memberships|sections|move-write)
+      MERGE_SECTION="done"
+      if [ "$failure" != memberships ]; then respond "$MEMBERS"; fi
+      if [ "$failure" = move-write ]; then respond "$SECTIONS"; empty; fi
+      ;;
+    later-page) respond '{"data":[],"next_page":{"offset":"next"}}' ;;
+    comment-write) empty ;;
+  esac
+  if [ "$failure" = malformed ]; then
+    respond '{"data":null}'
+    EXPECTED_RC=1
+  else
+    respond '{"errors":[{"message":"Forbidden"}]}' 403 22
+    EXPECTED_RC=22
+  fi
+  if [ -n "$MERGE_SECTION" ]; then respond '{"data":{"memberships":[]}}'; fi
+  empty; respond '{"data":{}}'; run
+  check "$failure failure isolates task A while task B syncs and batch fails" \
+    '[[ $RC == "$EXPECTED_RC" ]] && clean_errors && jq -se --arg second "$SECOND_TASK" \
+      ".[-1].method == \"POST\" and (.[-1].url | endswith(\"/tasks/\" + \$second + \"/stories\")) and ([.[] | select(.method != \"GET\")] | length == (if \"$failure\" == \"move-write\" or \"$failure\" == \"comment-write\" then 2 else 1 end))" "$MOCK_DIR/requests" > /dev/null'
+done
+
+start
+jq --arg second "$SECOND_TASK" '. + [.[0] | .task = $second]' <<< "$ENTRY" > "$MOCK_DIR/entries.json"
+user; empty; respond '{"data":{}}'; empty; respond '{"data":{}}'; run
+check "two successful tasks yield a successful batch" \
+  '[[ $RC == 0 ]] && jq -se "[.[] | select(.method == \"POST\")] | length == 2" "$MOCK_DIR/requests" > /dev/null'
+
+start; user; empty; respond '{"data":{}}'
+USER=fixture-login MOCK_EXPECT_USER=fixture-login run
+check "API child processes retain the exported login USER" '[[ $RC == 0 ]] && [[ ! -s "$MOCK_DIR/err" ]]'
+
+start
+jq --arg second "$SECOND_TASK" '. + [.[0] | .task = $second]' <<< "$ENTRY" > "$MOCK_DIR/entries.json"
+user; respond '' 000 6; respond '{"data":null}'; run
+check "batch retains first failure status after a different later failure" \
+  '[[ $RC == 6 ]] && no_writes && clean_errors && [[ $(wc -l < "$MOCK_DIR/requests") == 3 ]]'
 
 start
 printf '[]\n' > "$MOCK_DIR/entries.json"
