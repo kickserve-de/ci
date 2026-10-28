@@ -31,6 +31,9 @@ inputs:
   basic-auth:
     description: user:password for HTTP basic auth (pass a secret)
     default: ''
+  check-token:
+    description: Sent as X-Kickserve-Check header by the smoke test, so a WAF rule can let it through (pass a secret)
+    default: ''
   token:
     default: ${{ github.token }}
 
@@ -61,6 +64,7 @@ runs:
         WARMUP_HITS: ${{ inputs.warmup-hits }}
         FORM_FACTOR: ${{ inputs.form-factor }}
         BASIC_AUTH: ${{ inputs.basic-auth }}
+        CHECK_TOKEN: ${{ inputs.check-token }}
         CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
         RECORD: ${{ github.action_path }}/../../lib/record.sh
       run: bash "${{ github.action_path }}/checks.sh"
