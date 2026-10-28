@@ -5,6 +5,8 @@ set -euo pipefail
 # -b "": cookie engine on, so cookie-based redirects (locale, consent) do not loop.
 auth=()
 [ -n "$BASIC_AUTH" ] && auth=(-u "$BASIC_AUTH")
+# Lets a WAF rule (e.g. Cloudflare) skip its bot challenge for curl.
+[ -n "${CHECK_TOKEN:-}" ] && auth+=(-H "X-Kickserve-Check: $CHECK_TOKEN")
 
 # Smoke: one result for all paths, listing the failures and the slowest page.
 failed=()
