@@ -78,6 +78,9 @@ on:
       BASIC_AUTH:
         description: user:password if the environment is behind basic auth
         required: false
+      CHECK_TOKEN:
+        description: Sent as X-Kickserve-Check header by the smoke test, so a WAF rule can let it through
+        required: false
 
 permissions:
   contents: read
@@ -202,3 +205,4 @@ jobs:
           lighthouse-target: ${{ inputs.lighthouse-target }}
           warmup-hits: ${{ inputs.warmup-hits }}
           basic-auth: ${{ secrets.BASIC_AUTH }}
+          check-token: ${{ secrets.CHECK_TOKEN }}
