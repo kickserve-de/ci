@@ -1,0 +1,129 @@
+# Deploy a Laravel Forge site through the Forge API, then smoke test and Lighthouse.
+# Quick deploy (deploy on push) is off in Forge, so every deploy runs through here.
+# Production only deploys when the PR checks on the commit are green (the gate
+# waits while they still run).
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment (staging or production)
+        type: string
+        required: true
+      url:
+        description: Public base URL of the environment, without trailing slash
+        type: string
+        required: true
+      forge-organization:
+        description: Forge organization slug
+        type: string
+        required: true
+      forge-server:
+        description: Forge server id
+        type: string
+        required: true
+      forge-site:
+        description: Forge site id of this environment
+        type: string
+        required: true
+      runner:
+        type: string
+        default: self-hosted
+      timeout:
+        description: Seconds to wait for the Forge deployment
+        type: string
+        default: '1800'
+      gate-workflow:
+        description: PR-checks workflow file the production gate reads
+        type: string
+        default: pr.yml
+      smoke-paths:
+        type: string
+        default: /
+      lighthouse-paths:
+        type: string
+        default: /
+      lighthouse-min:
+        type: string
+        default: '50'
+      lighthouse-target:
+        type: string
+        default: '80'
+      required-requests:
+        description: URL parts every Lighthouse path must request in the browser, e.g. googletagmanager.com/gtm.js?id=GTM-XXXX (space separated); a missing one fails the deploy
+        type: string
+        default: ''
+      warmup-hits:
+        description: Requests per Lighthouse path before measuring (raise for load-balanced setups)
+        type: string
+        default: '2'
+    secrets:
+      FORGE_API_TOKEN:
+        # Not required for the same reason as SSH_PRIVATE_KEY in deploy-deployer.yml:
+        # an environment secret is invisible to jobs without that environment.
+        description: Forge API token with site:manage-deploys and server:view (repo, environment or org secret)
+        required: false
+      BASIC_AUTH:
+        description: user:password if the environment is behind basic auth
+        required: false
+      CHECK_TOKEN:
+        description: Sent as X-Kickserve-Check header by the smoke test, so a WAF rule can let it through
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  gate:
+    if: inputs.environment == 'production'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: kickserve-de/ci/actions/check-gate@v1
+        with:
+          workflow: ${{ inputs.gate-workflow }}
+
+  deploy:
+    needs: gate
+    if: always() && (needs.gate.result == 'success' || needs.gate.result == 'skipped')
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.url }}
+    # Never two deploys to the same environment at once, never cancel one halfway.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: kickserve-de/ci/actions/forge-deploy@v1
+        with:
+          organization: ${{ inputs.forge-organization }}
+          server: ${{ inputs.forge-server }}
+          site: ${{ inputs.forge-site }}
+          token: ${{ secrets.FORGE_API_TOKEN }}
+          timeout: ${{ inputs.timeout }}
+
+  post-deploy:
+    needs: deploy
+    # The skipped gate on staging would otherwise skip this job too.
+    if: always() && needs.deploy.result == 'success'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: kickserve-de/ci/actions/post-deploy@v1
+        with:
+          environment: ${{ inputs.environment }}
+          url: ${{ inputs.url }}
+          smoke-paths: ${{ inputs.smoke-paths }}
+          lighthouse-paths: ${{ inputs.lighthouse-paths }}
+          lighthouse-min: ${{ inputs.lighthouse-min }}
+          lighthouse-target: ${{ inputs.lighthouse-target }}
+          required-requests: ${{ inputs.required-requests }}
+          warmup-hits: ${{ inputs.warmup-hits }}
+          basic-auth: ${{ secrets.BASIC_AUTH }}
+          check-token: ${{ secrets.CHECK_TOKEN }}
