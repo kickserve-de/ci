@@ -10,6 +10,7 @@ PR, the same deploy flow, and the results as a traffic light in the PR.
 | Every PR and every push to `main` | `pr-checks.yml`: validate, install, audit, syntax, lint, typecheck, tests, build, migrations in the PR, snippet translations (the repo passes its own commands) | Checks on the PR + block `PR checks` in the PR description |
 | Push to `staging` | `deploy-deployer.yml` to staging, then smoke test + Lighthouse (each path warmed up first, `warmup-hits`) | Checks on the merged branch head + block `Staging` in its open PR |
 | Manual "Run workflow" on `main` | Gate (waits for the PR checks on that commit, they must be green) → deploy → smoke + Lighthouse | Block `Production` in the merged PR, job summary |
+| Manual "Release" on `main` (admin/maintain) | `release.yml`: role and gate check → version `N` (tag + GitHub Release "Version N") → production deploy → `release-tasks.yml`: "Live mit Version N" on the tasks, those in "Ready for Deployment" to Done | Releases page, block `Production` in the merged PRs, task comments, job summary |
 | Manual "Run workflow" | `rollback-deployer.yml`: previous Deployer release | Job log |
 | Manual "Run workflow" | `unlock-deployer.yml`: removes a stale Deployer lock after a killed deploy | Job log |
 | Every push and PR opened/merged | `task-sync.yml`: task ID from commit, branch or PR title | Task link in the PR description, one pinned Commit-Log comment on the task |
@@ -82,6 +83,78 @@ a config file into each release), list their names in `env-secrets`; with
 Repo-specific deploy scripts (no Deployer) can still use the
 `check-gate` and `post-deploy` actions directly. Repos deployed by AWS CodePipeline wait for
 the release with `actions/wait-codepipeline` before `post-deploy`.
+
+## Release (versioned production deploys)
+
+A version is a plain integer per repo (1, 2, 3 …): a git tag `N` and a GitHub
+Release "Version N" with generated notes (PRs since the previous version; for
+version 1 since the newest older release or tag, so repos with old semver
+releases get sensible notes). Other tags are ignored for the numbering.
+
+- **A version always deploys.** "Release" creates the next version and deploys
+  it to production in the same run. Merged work waits on `main` until someone
+  runs it, so dependent tasks can go live together.
+- **Only on `main`, only admin or maintain.** The run fails for anyone else
+  (role of the person who started or re-ran it) and on other branches.
+- **No version for red checks.** The gate (PR checks on the commit) runs before
+  the tag exists.
+- **Nothing new, nothing created.** When the latest version already is `main`'s
+  HEAD, no new number is made: it deploys again only when it has no successful
+  production deployment yet (e.g. the deploy failed), else the run says
+  "nothing new".
+- **The "Deploy production" button stays** and creates no version.
+- After the deploy, the tasks referenced in the version's commits get the
+  comment "Live mit Version N: <release link>"; those in the section
+  `Ready for Deployment` move to `Done` (never completed), tasks in other
+  sections stay where they are. A red smoke test or Lighthouse after a
+  successful deploy still counts as live. Reruns post no second comment.
+
+`.github/workflows/release.yml`:
+
+```yaml
+name: Release
+on: workflow_dispatch
+jobs:
+  version:
+    uses: kickserve-de/ci/.github/workflows/release.yml@v1
+    permissions: { contents: write, actions: read, deployments: read }
+  deploy:
+    needs: version
+    if: needs.version.outputs.deploy == 'true'
+    uses: ./.github/workflows/deploy-production.yml
+    secrets: inherit
+    permissions: { contents: read, actions: read, checks: write, pull-requests: write }
+  tasks:
+    needs: [version, deploy]
+    # Also after a red smoke test: release-tasks checks that the deploy itself succeeded.
+    if: ${{ !cancelled() && needs.version.outputs.deploy == 'true' }}
+    uses: kickserve-de/ci/.github/workflows/release-tasks.yml@v1
+    with: { version: '${{ needs.version.outputs.version }}' }
+    secrets: inherit
+    permissions: { contents: read, deployments: read }
+```
+
+`deploy-production.yml` gets `workflow_call` next to `workflow_dispatch`, nothing
+else changes (the button keeps working):
+
+```diff
+ name: Deploy production
+-on: workflow_dispatch
++on: [workflow_dispatch, workflow_call]
+```
+
+Repos with another production deploy chain whatever they run today the same
+way. `release.yml` inputs: `gate-workflow` (default `pr.yml`), `environment`
+(default `production`, the environment whose deployments tell whether a version
+is live), `runner` (default `ubuntu-latest`); outputs `version`, `deploy`,
+`created` (`'true'` only when the tag was made in this run) and `sha`.
+`release-tasks.yml` inputs: `version` (required), `environment`, `done-section`
+(default `Done`), `ready-section` (default `Ready for Deployment`), `runner`, `api`; tracker settings as for task sync below
+(repos outside kickserve-de pass `api` and `TASK_TOKEN` explicitly instead of
+`secrets: inherit`). Both workflows need `gh` on the runner.
+
+Run `lib/test-release.sh` and `actions/release-tasks/test.sh` for the offline
+tests (the `Release tests` workflow runs them).
 
 ## Task sync
 
