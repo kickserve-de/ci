@@ -1,0 +1,53 @@
+name: Next version
+description: >
+  Reads the version tags (plain integers, lib/next-version.sh) of this repo: the next
+  version number and where its release notes start, or, when the latest version
+  already sits on the commit, that version and whether it is live (has a successful
+  deployment to the environment, lib/deployments.sh). Read-only.
+
+inputs:
+  sha:
+    default: ${{ github.sha }}
+  environment:
+    description: GitHub environment whose deployments tell whether a version is live
+    default: production
+  token:
+    description: Needs contents read (releases) and deployments read
+    default: ${{ github.token }}
+
+outputs:
+  version:
+    description: The next version, or the latest one when it sits on sha
+    value: ${{ steps.next.outputs.version }}
+  on-head:
+    description: "'true' when the latest version already sits on sha"
+    value: ${{ steps.next.outputs.on_head }}
+  live:
+    description: "'true' when on-head and that version deployed successfully"
+    value: ${{ steps.next.outputs.live }}
+  previous:
+    description: Tag the release notes of a new version start from (empty = GitHub decides)
+    value: ${{ steps.next.outputs.previous }}
+
+runs:
+  using: composite
+  steps:
+    - id: next
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        SHA: ${{ inputs.sha }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        LIB: ${{ github.action_path }}/../../lib
+      run: |
+        tags="$RUNNER_TEMP/release-tags.txt" releases="$RUNNER_TEMP/release-releases.txt"
+        gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[] | "\(.name) \(.commit.sha)"' > "$tags"
+        gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft | not) | .tag_name' > "$releases"
+        result=$(bash "$LIB/next-version.sh" next "$SHA" "$tags" "$releases")
+        echo "$result"
+        echo "$result" >> "$GITHUB_OUTPUT"
+        live=false
+        if grep -qx 'on_head=true' <<< "$result"; then
+          live=$(bash "$LIB/deployments.sh" live "$ENVIRONMENT" "$SHA")
+        fi
+        echo "live=$live" | tee -a "$GITHUB_OUTPUT"
