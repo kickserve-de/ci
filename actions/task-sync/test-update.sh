@@ -99,7 +99,7 @@ done
 
 for body in 'not json' '{}' '{"data":{"gid":null}}' '{"data":{"gid":7}}'; do
   start; respond "$body"; run
-  check "invalid identity rejected: $body" '[[ $RC != 0 ]] && no_writes && clean_errors && [[ $(wc -l < "$MOCK_DIR/requests") == 1 ]]'
+  check "invalid identity rejected: $body" '[[ $RC != 0 ]] && no_writes && clean_errors && [[ $(wc -l < "$MOCK_DIR/requests" | tr -d " ") == 1 ]]'
 done
 
 start; respond '{"errors":[{"message":"Identity denied"}]}' 403 22; run
@@ -139,7 +139,7 @@ for existing in false true; do
   respond '{"errors":[{"message":"Write denied offline-secret-sentinel\nBearer private-header"}]}' 400 22
   run
   check "write failure (existing=$existing) is safe and not retried" \
-    '[[ $RC == 22 ]] && [[ $(wc -l < "$MOCK_DIR/requests") == 3 ]] && clean_errors && ! grep -q private-header "$MOCK_DIR/err" && grep -Eq "(POST|PUT).*HTTP 400.*Write denied" "$MOCK_DIR/err" && ! grep -Eq "created|updated" "$MOCK_DIR/out"'
+    '[[ $RC == 22 ]] && [[ $(wc -l < "$MOCK_DIR/requests" | tr -d " ") == 3 ]] && clean_errors && ! grep -q private-header "$MOCK_DIR/err" && grep -Eq "(POST|PUT).*HTTP 400.*Write denied" "$MOCK_DIR/err" && ! grep -Eq "created|updated" "$MOCK_DIR/out"'
 done
 
 # All merge-section reads must succeed before any task mutation.
@@ -217,7 +217,7 @@ user; respond "$MEMBERS"; respond "$SECTIONS"; empty
 respond '{"errors":[{"message":"Move denied"}]}' 400 22
 run
 check "section write failure stops dependent writes and reports endpoint" \
-  '[[ $RC == 22 ]] && [[ $(wc -l < "$MOCK_DIR/requests") == 5 ]] && clean_errors && grep -q "POST /sections/10/addTask.*HTTP 400.*Move denied" "$MOCK_DIR/err"'
+  '[[ $RC == 22 ]] && [[ $(wc -l < "$MOCK_DIR/requests" | tr -d " ") == 5 ]] && clean_errors && grep -q "POST /sections/10/addTask.*HTTP 400.*Move denied" "$MOCK_DIR/err"'
 
 SECOND_TASK=1219595984767914
 for failure in comments later-page malformed memberships sections move-write comment-write; do
@@ -261,7 +261,7 @@ start
 jq --arg second "$SECOND_TASK" '. + [.[0] | .task = $second]' <<< "$ENTRY" > "$MOCK_DIR/entries.json"
 user; respond '' 000 6; respond '{"data":null}'; run
 check "batch retains first failure status after a different later failure" \
-  '[[ $RC == 6 ]] && no_writes && clean_errors && [[ $(wc -l < "$MOCK_DIR/requests") == 3 ]]'
+  '[[ $RC == 6 ]] && no_writes && clean_errors && [[ $(wc -l < "$MOCK_DIR/requests" | tr -d " ") == 3 ]]'
 
 start
 printf '[]\n' > "$MOCK_DIR/entries.json"
