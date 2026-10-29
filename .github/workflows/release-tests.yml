@@ -10,6 +10,7 @@ on:
       - 'actions/release-tasks/**'
       - 'actions/task-sync/**'
       - 'actions/post-deploy/**'
+      - 'actions/forge-deploy/**'
       - '.github/workflows/release-tests.yml'
   # Push to main: run by move-major-tag.yml before it moves the tag.
   workflow_call:
@@ -26,12 +27,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Shell syntax
-        run: bash -n lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh} actions/release-tasks/{update.sh,test.sh} actions/post-deploy/{checks.sh,test.sh}
+        run: bash -n lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh} actions/release-tasks/{update.sh,test.sh} actions/post-deploy/{checks.sh,test.sh} actions/forge-deploy/{deploy.sh,test.sh}
       - name: ShellCheck
-        run: shellcheck -x lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh} actions/release-tasks/{update.sh,test.sh} actions/post-deploy/{checks.sh,test.sh}
+        run: shellcheck -x lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh} actions/release-tasks/{update.sh,test.sh} actions/post-deploy/{checks.sh,test.sh} actions/forge-deploy/{deploy.sh,test.sh}
       - name: Version helpers
         run: bash lib/test-release.sh
       - name: Release tasks
         run: bash actions/release-tasks/test.sh
       - name: Post-deploy checks
         run: bash actions/post-deploy/test.sh
+      - name: Forge deploy
+        run: bash actions/forge-deploy/test.sh
