@@ -22,6 +22,9 @@ inputs:
   lighthouse-target:
     description: Score (0-100) below which a category turns yellow
     default: '80'
+  required-requests:
+    description: URL parts every Lighthouse path must request in the browser, e.g. googletagmanager.com/gtm.js?id=GTM-XXXX (space separated); a missing one fails the deploy
+    default: ''
   warmup-hits:
     description: Requests per Lighthouse path before measuring, so caches are warm (raise for load-balanced setups)
     default: '2'
@@ -61,6 +64,7 @@ runs:
         LIGHTHOUSE_PATHS: ${{ inputs.lighthouse-paths }}
         LIGHTHOUSE_MIN: ${{ inputs.lighthouse-min }}
         LIGHTHOUSE_TARGET: ${{ inputs.lighthouse-target }}
+        REQUIRED_REQUESTS: ${{ inputs.required-requests }}
         WARMUP_HITS: ${{ inputs.warmup-hits }}
         FORM_FACTOR: ${{ inputs.form-factor }}
         BASIC_AUTH: ${{ inputs.basic-auth }}

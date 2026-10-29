@@ -17,7 +17,7 @@ PR, the same deploy flow, and the results as a traffic light in the PR.
 
 ## Traffic light
 
-- 🔴 a **hard** check failed (tests, build, syntax, smoke, Lighthouse below `lighthouse-min`): the job fails and blocks the merge or marks the deploy red.
+- 🔴 a **hard** check failed (tests, build, syntax, smoke, required requests, Lighthouse below `lighthouse-min`): the job fails and blocks the merge or marks the deploy red.
 - 🟡 only **soft** checks failed (audits, lint/typecheck when set to soft, Lighthouse below `lighthouse-target`): GitHub shows them as neutral checks.
 - 🟢 everything passed.
 
@@ -80,6 +80,10 @@ action file. The Deployer version comes from `deployer/deployer` in `composer.lo
 `deployer-version` to both the deploy and the rollback workflow. When the build or `deploy.php` reads secrets from the environment (e.g. to write
 a config file into each release), list their names in `env-secrets`; with
 `secrets: inherit` the job sees the secrets of its GitHub environment.
+Scripts that must load in the browser (tag manager, consent banner) go into
+`required-requests` as URL parts, e.g.
+`googletagmanager.com/gtm.js?id=GTM-XXXX`: the Lighthouse run checks that every
+Lighthouse path requested them, and a missing one is a hard failure.
 Repo-specific deploy scripts (no Deployer) can still use the
 `check-gate` and `post-deploy` actions directly. Repos deployed by AWS CodePipeline wait for
 the release with `actions/wait-codepipeline` before `post-deploy`.
