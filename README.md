@@ -214,8 +214,7 @@ grant access. A subsequent `400` alone does not establish a permissions or pinni
 Logs running `.github/scripts/asana/update.sh` use an older local copy, not the shared
 `actions/task-sync/update.sh`. Those consumers must migrate to the shared action
 with a release containing the fix (or update their local copy). Existing `@v1`
-callers benefit only once the compatible fix is released to `v1`; merging a fix
-does not itself update that tag.
+callers get the fix once it is merged into `main` (see Versions).
 
 ## Repo setup
 
@@ -225,4 +224,10 @@ does not itself update that tag.
 
 ## Versions
 
-Repos use `@v1`. Compatible changes move the `v1` tag; breaking changes get `v2`.
+Repos use `@v1`. Every push to `main` runs the tests and then moves the newest
+major tag (`v1`, after `v2` exists `v2`) to that commit (`move-major-tag.yml`), so a
+merge is live for all callers within minutes. Before merging a breaking change, tag the current
+`main` as the next major (`git tag v2 origin/main && git push origin v2`); the merge
+then moves `v2` and `v1` stays put. If the
+run fails with a missing `workflows` permission, add a repo secret `TAG_TOKEN`
+(fine-grained token on this repo: contents + workflows write) and re-run it.
