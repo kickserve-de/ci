@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Marks the tasks of a deployed version as live: moves each into the Done section of its projects
-# (never sets completed) and posts the comment "Live mit Version N: <release URL>" once.
-# Rerunning is safe: a task already in the section is not moved, a comment with the release URL
+# Marks the tasks of a deployed version as live: a task in the "Ready for Deployment" section of a
+# project moves to its Done section (never sets completed; tasks in other sections stay), and every
+# task gets the comment "Live mit Version N: <release URL>" once.
+# Rerunning is safe: a moved task is no longer in the ready section, a comment with the release URL
 # is not posted again. A failing task does not stop the others; the exit status is the first failure.
 #
 # Usage: update.sh tasks.txt   (one task ID per line)
@@ -9,7 +10,8 @@
 #        TASK_API       API base, default https://app.asana.com/api/1.0 (Kickserve Work: https://<host>/api/1.0)
 #        VERSION        version number
 #        RELEASE_URL    GitHub release of the version
-#        DONE_SECTION   section name (case-insensitive, default Done)
+#        DONE_SECTION   section the tasks move to (case-insensitive, default Done)
+#        READY_SECTION  only tasks in this section move (case-insensitive, default Ready for Deployment)
 #        SUMMARY        file the result table is appended to (default $GITHUB_STEP_SUMMARY, else none)
 set -euo pipefail
 
@@ -17,6 +19,7 @@ TASKS_FILE=$1
 DIR=$(cd "$(dirname "$0")" && pwd)
 API=${TASK_API:-https://app.asana.com/api/1.0}
 DONE_SECTION=${DONE_SECTION:-Done}
+READY_SECTION=${READY_SECTION:-Ready for Deployment}
 SUMMARY=${SUMMARY:-${GITHUB_STEP_SUMMARY:-/dev/null}}
 LOG_PREFIX=release-tasks
 # api, read_api, comments, section_moves
@@ -37,7 +40,7 @@ if [ -n "${TASK_API:-}" ]; then LINK_BASE="${TASK_API%/api/1.0}/tasks/"; else LI
 # Reads first (section moves, existing comments), then the writes; prints what happened.
 release_task() {
   local TASK=$1 MOVES COMMENTS POSTED SECTION PROJECT MOVED=0
-  MOVES=$(section_moves "$TASK" "$DONE_SECTION") || return $?
+  MOVES=$(section_moves "$TASK" "$DONE_SECTION" "$READY_SECTION") || return $?
   COMMENTS=$(comments "$TASK") || return $?
   POSTED=$(jq -s --arg url "$RELEASE_URL" 'any(.[]; .html_text // "" | contains($url))' <<< "$COMMENTS") || return $?
 
@@ -56,7 +59,7 @@ release_task() {
     POSTED=new
   fi
   printf '%s | %s\n' \
-    "$([ "$MOVED" -gt 0 ] && echo "moved to $DONE_SECTION" || echo "not moved (already there or no such section)")" \
+    "$([ "$MOVED" -gt 0 ] && echo "moved to $DONE_SECTION" || echo "not moved (not in $READY_SECTION, or no $DONE_SECTION section)")" \
     "$([ "$POSTED" = new ] && echo "posted" || echo "already there")"
 }
 
