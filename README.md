@@ -10,7 +10,7 @@ PR, the same deploy flow, and the results as a traffic light in the PR.
 | Every PR and every push to `main` | `pr-checks.yml`: validate, install, audit, syntax, lint, typecheck, tests, build, migrations in the PR, snippet translations (the repo passes its own commands) | Checks on the PR + block `PR checks` in the PR description |
 | Push to `staging` | `deploy-deployer.yml` to staging, then smoke test + Lighthouse (each path warmed up first, `warmup-hits`) | Checks on the merged branch head + block `Staging` in its open PR |
 | Manual "Run workflow" on `main` | Gate (waits for the PR checks on that commit, they must be green) → deploy → smoke + Lighthouse | Block `Production` in the merged PR, job summary |
-| Manual "Release" on `main` (admin/maintain) | `release.yml`: role and gate check → version `N` (tag + GitHub Release "Version N") → production deploy → `release-tasks.yml`: tasks to Done with "Live mit Version N" | Releases page, block `Production` in the merged PRs, task comments, job summary |
+| Manual "Release" on `main` (admin/maintain) | `release.yml`: role and gate check → version `N` (tag + GitHub Release "Version N") → production deploy → `release-tasks.yml`: "Live mit Version N" on the tasks, those in "Ready for Deployment" to Done | Releases page, block `Production` in the merged PRs, task comments, job summary |
 | Manual "Run workflow" | `rollback-deployer.yml`: previous Deployer release | Job log |
 | Manual "Run workflow" | `unlock-deployer.yml`: removes a stale Deployer lock after a killed deploy | Job log |
 | Every push and PR opened/merged | `task-sync.yml`: task ID from commit, branch or PR title | Task link in the PR description, one pinned Commit-Log comment on the task |
@@ -103,9 +103,10 @@ releases get sensible notes). Other tags are ignored for the numbering.
   production deployment yet (e.g. the deploy failed), else the run says
   "nothing new".
 - **The "Deploy production" button stays** and creates no version.
-- After the deploy, the tasks referenced in the version's commits move to the
-  `Done` section of their projects (never completed) and get the comment
-  "Live mit Version N: <release link>". A red smoke test or Lighthouse after a
+- After the deploy, the tasks referenced in the version's commits get the
+  comment "Live mit Version N: <release link>"; those in the section
+  `Ready for Deployment` move to `Done` (never completed), tasks in other
+  sections stay where they are. A red smoke test or Lighthouse after a
   successful deploy still counts as live. Reruns post no second comment.
 
 `.github/workflows/release.yml`:
@@ -148,7 +149,7 @@ way. `release.yml` inputs: `gate-workflow` (default `pr.yml`), `environment`
 is live), `runner` (default `ubuntu-latest`); outputs `version`, `deploy`,
 `created` (`'true'` only when the tag was made in this run) and `sha`.
 `release-tasks.yml` inputs: `version` (required), `environment`, `done-section`
-(default `Done`), `runner`, `api`; tracker settings as for task sync below
+(default `Done`), `ready-section` (default `Ready for Deployment`), `runner`, `api`; tracker settings as for task sync below
 (repos outside kickserve-de pass `api` and `TASK_TOKEN` explicitly instead of
 `secrets: inherit`). Both workflows need `gh` on the runner.
 
