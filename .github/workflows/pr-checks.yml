@@ -34,8 +34,12 @@ on:
         description: npm or yarn (yarn 1), used by the audit check
         type: string
         default: npm
+      tools:
+        description: Extra CLI tools to set up before the commands run (space separated); supported - shopware-cli
+        type: string
+        default: ''
       shopware-cli:
-        description: Install shopware-cli (for a build command that uses it)
+        description: Deprecated, use tools - shopware-cli
         type: boolean
         default: false
       # Commands: each non-empty one is a check of the same name
@@ -146,7 +150,8 @@ jobs:
           command -v yarn >/dev/null || { corepack enable && yarn --version >/dev/null; } || npm install -g yarn@1
           yarn --version
 
-      - if: inputs.shopware-cli
+      - if: contains(format(' {0} ', inputs.tools), ' shopware-cli ') || inputs.shopware-cli
+        name: Set up shopware-cli
         uses: shopware/shopware-cli-action@v1
 
       - if: inputs.php && hashFiles('composer.json') != ''
