@@ -48,7 +48,7 @@ jobs:
       lint: npm run lint        # soft by default (lint-level: hard)
       typecheck: npm run typecheck
       test: composer test
-      build: npm run build      # e.g. shopware-cli project ci . with shopware-cli: true
+      build: npm run build      # e.g. shopware-cli project ci . with tools: shopware-cli
       build-dirs: site/plugins/foo   # sub-packages built with npm, part of "build"
     secrets: inherit
 ```
