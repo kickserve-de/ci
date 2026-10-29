@@ -1,0 +1,56 @@
+# After the production deploy of a version (actions/release-tasks): the tasks referenced in its
+# commits move to the Done section (never completed) and get "Live mit Version N: <release>".
+# Called by the repo's release.yml after its deploy job; does nothing when the version has no
+# successful deployment, so a red smoke test after a successful deploy still counts as live.
+# Same tracker settings as task-sync.yml:
+#   secret   TASK_TOKEN  (falls back to ASANA_PAT)
+#   variable TASK_API    (falls back to ASANA_API; empty = Asana, Kickserve Work: https://<host>/api/1.0)
+# `secrets: inherit` only reaches this workflow from repos in the kickserve-de org.
+# Repos in other orgs pass the token and the API base explicitly (see README).
+name: Release tasks
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version number (tag) that was deployed
+        type: string
+        required: true
+      environment:
+        description: GitHub environment the version was deployed to
+        type: string
+        default: production
+      done-section:
+        description: Section the tasks move to
+        type: string
+        default: Done
+      runner:
+        description: Runner label
+        type: string
+        default: ubuntu-latest
+      api:
+        description: API base, overrides the TASK_API variable (repos outside kickserve-de pass it)
+        type: string
+        default: ''
+    secrets:
+      TASK_TOKEN:
+        required: false
+      ASANA_PAT:
+        required: false
+
+permissions:
+  contents: read
+  deployments: read
+
+jobs:
+  tasks:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: kickserve-de/ci/actions/release-tasks@v1
+        with:
+          version: ${{ inputs.version }}
+          environment: ${{ inputs.environment }}
+          done-section: ${{ inputs.done-section }}
+          token: ${{ secrets.TASK_TOKEN || secrets.ASANA_PAT }}
+          api: ${{ inputs.api || vars.TASK_API || vars.ASANA_API }}
