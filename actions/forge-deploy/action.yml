@@ -1,0 +1,38 @@
+name: Deploy with Laravel Forge
+description: >
+  Starts a Forge deployment of a site through the Forge API and waits until it
+  has ended. Fails when it fails, is cancelled, times out or deployed another
+  commit than sha. Turn off quick deploy (deploy on push) for the site, so every
+  deploy runs through here.
+
+inputs:
+  organization:
+    description: Forge organization slug
+    required: true
+  server:
+    description: Forge server id
+    required: true
+  site:
+    description: Forge site id
+    required: true
+  token:
+    description: Forge API token with site:manage-deploys and server:view (pass a secret)
+    required: true
+  sha:
+    default: ${{ github.sha }}
+  timeout:
+    description: Seconds to wait before failing
+    default: '1800'
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        FORGE_API_TOKEN: ${{ inputs.token }}
+        ORGANIZATION: ${{ inputs.organization }}
+        SERVER: ${{ inputs.server }}
+        SITE: ${{ inputs.site }}
+        SHA: ${{ inputs.sha }}
+        TIMEOUT: ${{ inputs.timeout }}
+      run: bash "$GITHUB_ACTION_PATH/deploy.sh"
