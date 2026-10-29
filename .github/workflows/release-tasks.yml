@@ -1,5 +1,6 @@
 # After the production deploy of a version (actions/release-tasks): the tasks referenced in its
-# commits move to the Done section (never completed) and get "Live mit Version N: <release>".
+# commits get "Live mit Version N: <release>"; those in "Ready for Deployment" move to Done
+# (never completed).
 # Called by the repo's release.yml after its deploy job; does nothing when the version has no
 # successful deployment, so a red smoke test after a successful deploy still counts as live.
 # Same tracker settings as task-sync.yml:
@@ -24,6 +25,10 @@ on:
         description: Section the tasks move to
         type: string
         default: Done
+      ready-section:
+        description: Only tasks in this section move; tasks elsewhere only get the comment
+        type: string
+        default: Ready for Deployment
       runner:
         description: Runner label
         type: string
@@ -52,5 +57,6 @@ jobs:
           version: ${{ inputs.version }}
           environment: ${{ inputs.environment }}
           done-section: ${{ inputs.done-section }}
+          ready-section: ${{ inputs.ready-section }}
           token: ${{ secrets.TASK_TOKEN || secrets.ASANA_PAT }}
           api: ${{ inputs.api || vars.TASK_API || vars.ASANA_API }}

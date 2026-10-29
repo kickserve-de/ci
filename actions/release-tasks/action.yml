@@ -1,8 +1,8 @@
 name: Release tasks
 description: >
   After a production deploy of version N: every task referenced in the commits since the
-  previous version moves to the Done section of its projects (never completed) and gets
-  the comment "Live mit Version N: <release>". Does nothing when version N has no
+  previous version gets the comment "Live mit Version N: <release>", and moves to the Done
+  section of its projects (never completed) when it is in "Ready for Deployment" there. Does nothing when version N has no
   successful deployment to the environment. Task IDs as in task-sync (first ID per commit
   message). Works with any Asana-compatible API (Asana, Kickserve Work).
 
@@ -16,6 +16,9 @@ inputs:
   done-section:
     description: Section the tasks move to (case-insensitive)
     default: Done
+  ready-section:
+    description: Only tasks in this section move (case-insensitive); tasks elsewhere only get the comment
+    default: Ready for Deployment
   token:
     description: Task tracker token (Asana PAT or Kickserve Work token); empty = tasks are not updated
     default: ''
@@ -78,6 +81,7 @@ runs:
         VERSION: ${{ inputs.version }}
         RELEASE_URL: ${{ steps.collect.outputs.url }}
         DONE_SECTION: ${{ inputs.done-section }}
+        READY_SECTION: ${{ inputs.ready-section }}
         TASKS: ${{ runner.temp }}/release-tasks.txt
       run: |
         [ -z "$TASK_TOKEN" ] && { echo "::warning::No task token (secret TASK_TOKEN or ASANA_PAT), tasks not updated."; exit 0; }

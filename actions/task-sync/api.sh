@@ -74,8 +74,9 @@ comments() {
 }
 
 # Plan moves first: no mutation until all reads for this task have succeeded.
+# Optional third argument: move only out of the section with that name (case-insensitive).
 section_moves() {
-  local task=$1 name=$2 memberships project current section response M
+  local task=$1 name=$2 from=${3:-} memberships project current section response M
   response=$(read_api "/tasks/$task?opt_fields=memberships.project.gid,memberships.section.name" '
     (.data | type == "object") and (.data.memberships | type == "array") and
     all(.data.memberships[]; type == "object" and (.project.gid | id) and
@@ -87,6 +88,7 @@ section_moves() {
     project=$(jq -r '.project.gid' <<< "$M") || return $?
     current=$(jq -r '.section.name // ""' <<< "$M") || return $?
     [ "$(tr "[:upper:]" "[:lower:]" <<< "$current")" = "$(tr "[:upper:]" "[:lower:]" <<< "$name")" ] && continue
+    [ -n "$from" ] && [ "$(tr "[:upper:]" "[:lower:]" <<< "$current")" != "$(tr "[:upper:]" "[:lower:]" <<< "$from")" ] && continue
     response=$(read_api "/projects/$project/sections?opt_fields=name" '
       (.data | type == "array") and
       all(.data[]; type == "object" and (.gid | id) and (.name | type == "string"))

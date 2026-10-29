@@ -11,7 +11,7 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir "$TMP/bin"
 ln -s "$TS/tests/mock-curl.sh" "$TMP/bin/curl"
 export PATH="$TMP/bin:$PATH" TASK_TOKEN=offline-secret-sentinel TASK_API=""
-export VERSION=14 RELEASE_URL=https://github.com/o/r/releases/tag/14 DONE_SECTION=""
+export VERSION=14 RELEASE_URL=https://github.com/o/r/releases/tag/14 DONE_SECTION="" READY_SECTION=""
 PASS=0 FAIL=0
 export RC=0
 A=1219595984767913 B=17919966507813712
@@ -45,7 +45,7 @@ start() {
   : > "$MOCK_DIR/requests"
   SUMMARY="$MOCK_DIR/summary"
   printf '%s\n' "${1-$A}" > "$MOCK_DIR/tasks.txt"
-  N=0 DONE_SECTION="" TASK_API=""
+  N=0 DONE_SECTION="" READY_SECTION="" TASK_API=""
 }
 respond() {
   N=$((N + 1))
@@ -66,15 +66,26 @@ check "moves to Done, then posts the German comment with the release link" \
    grep -q "moved to Done | posted" "$MOCK_DIR/summary" && ! grep -q completed "$MOCK_DIR/requests"'
 
 start; respond '{"data":{"memberships":[{"project":{"gid":"9"},"section":{"name":"done"}}]}}'; respond "$POSTED"; run
-check "rerun: already in Done (case-insensitive) and comment there → no writes" \
-  '[[ $RC == 0 ]] && [[ $(writes) == "[]" ]] && grep -q "not moved (already there or no such section) | already there" "$MOCK_DIR/summary"'
+check "rerun: already in Done and comment there → no writes" \
+  '[[ $RC == 0 ]] && [[ $(writes) == "[]" ]] && grep -q "not moved (.*) | already there" "$MOCK_DIR/summary"'
+
+start; respond '{"data":{"memberships":[{"project":{"gid":"9"},"section":{"name":"In Progress"}},{"project":{"gid":"8"}}]}}'
+respond "$EMPTY"; respond '{"data":{}}'; run
+check "task outside Ready for Deployment stays, gets the comment, no section reads" \
+  '[[ $RC == 0 ]] && [[ $(writes) == "[\"/tasks/$A/stories\"]" ]] && [[ $(wc -l < "$MOCK_DIR/requests" | tr -d " ") == 3 ]] &&
+   grep -q "not moved (not in Ready for Deployment, or no Done section) | posted" "$MOCK_DIR/summary"'
+
+start; respond '{"data":{"memberships":[{"project":{"gid":"9"},"section":{"name":"ready for deployment"}}]}}'
+respond "$SECTIONS"; respond "$EMPTY"; respond '{"data":{}}'; respond '{"data":{}}'; run
+check "ready section matches case-insensitively" '[[ $RC == 0 ]] && [[ $(writes) == "[\"/sections/11/addTask\",\"/tasks/$A/stories\"]" ]]'
 
 start; respond "$MEMBERS"; respond "$SECTIONS"; respond "$POSTED"; respond '{"data":{}}'; run
 check "comment there but not moved yet → only the move" '[[ $RC == 0 ]] && [[ $(writes) == "[\"/sections/11/addTask\"]" ]]'
 
-start; DONE_SECTION="Live"; TASK_API=https://work.example.test/api/1.0
-respond "$MEMBERS"; respond '{"data":[{"gid":"12","name":"live"}]}'; respond "$EMPTY"; respond '{"data":{}}'; respond '{"data":{}}'; run
-check "custom section and Kickserve Work base" \
+start; DONE_SECTION="Live" READY_SECTION="Approved"; TASK_API=https://work.example.test/api/1.0
+respond '{"data":{"memberships":[{"project":{"gid":"9"},"section":{"name":"Approved"}}]}}'
+respond '{"data":[{"gid":"12","name":"live"}]}'; respond "$EMPTY"; respond '{"data":{}}'; respond '{"data":{}}'; run
+check "custom sections and Kickserve Work base" \
   '[[ $RC == 0 ]] && [[ $(writes) == "[\"/sections/12/addTask\",\"/tasks/$A/stories\"]" ]] &&
    jq -se "all(.[]; .url | startswith(\"https://work.example.test/api/1.0/\"))" "$MOCK_DIR/requests" > /dev/null &&
    grep -q "https://work.example.test/tasks/$A" "$MOCK_DIR/summary"'
