@@ -1,0 +1,122 @@
+# Creates the next version of the repo on main: tag N (plain integer, 1, 2, 3 …) and the
+# GitHub Release "Version N" with generated notes. A version always deploys: the caller's
+# next job runs its production deploy when the output `deploy` is 'true' (see README).
+# Only admins and maintainers may release, only from main, and only when the PR checks on
+# the commit are green (the gate runs before the tag exists, so no version for red checks).
+# When the latest version already sits on main's HEAD, nothing new is created: it is
+# deployed again only when it has no successful deployment yet (e.g. the deploy failed).
+# A release made with GITHUB_TOKEN fires no `on: release` workflows, hence the chaining.
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      gate-workflow:
+        description: PR-checks workflow file the gate reads (same as in deploy-deployer.yml)
+        type: string
+        default: pr.yml
+      environment:
+        description: GitHub environment whose deployments tell whether a version is live
+        type: string
+        default: production
+      runner:
+        type: string
+        default: ubuntu-latest
+    outputs:
+      version:
+        description: Version number N (new, or the latest one when it sits on HEAD)
+        value: ${{ jobs.version.outputs.version }}
+      deploy:
+        description: "'true' when the caller should deploy: a new version, or the latest one on HEAD without a successful deployment"
+        value: ${{ jobs.version.outputs.deploy }}
+      created:
+        description: "'true' only when the tag and release were created in this run"
+        value: ${{ jobs.version.outputs.created }}
+      sha:
+        description: Commit of the version
+        value: ${{ jobs.version.outputs.sha }}
+
+# Role lookup and tags need only metadata; releases contents, the gate actions, live check deployments.
+permissions:
+  contents: write
+  actions: read
+  deployments: read
+
+jobs:
+  version:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 40
+    # One numbering at a time per repo, never cancel one halfway.
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      deploy: ${{ steps.result.outputs.deploy }}
+      created: ${{ steps.result.outputs.created }}
+      sha: ${{ github.sha }}
+    steps:
+      # triggering_actor: on "Re-run" this is the person re-running, not the one who started it.
+      - name: Role and branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          role=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$ACTOR/permission" --jq .role_name) || role=""
+          case "$role" in
+            admin|maintain) echo "$ACTOR has role $role." ;;
+            *) echo "::error::Only admins and maintainers may create a version; $ACTOR has role ${role:-unknown}."; exit 1 ;;
+          esac
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::A version is created only from main, not $GITHUB_REF."
+            exit 1
+          fi
+
+      - id: next
+        uses: kickserve-de/ci/actions/next-version@v1
+        with:
+          environment: ${{ inputs.environment }}
+
+      - name: Gate
+        if: steps.next.outputs.on-head != 'true'
+        uses: kickserve-de/ci/actions/check-gate@v1
+        with:
+          workflow: ${{ inputs.gate-workflow }}
+
+      # target_commitish creates the tag on github.sha together with the release.
+      - name: Create version
+        if: steps.next.outputs.on-head != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.next.outputs.version }}
+          PREVIOUS: ${{ steps.next.outputs.previous }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          args=(-f tag_name="$VERSION" -f target_commitish="$GITHUB_SHA")
+          [ -n "$PREVIOUS" ] && args+=(-f previous_tag_name="$PREVIOUS")
+          notes=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" "${args[@]}" --jq .body)
+          url=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$VERSION" -f target_commitish="$GITHUB_SHA" -f name="Version $VERSION" \
+            -f body="$notes"$'\n\n'"Created by $RUN_URL" --jq .html_url)
+          echo "Version $VERSION on ${GITHUB_SHA:0:7}: $url"
+          echo "Version $VERSION created on \`${GITHUB_SHA:0:7}\`: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - id: result
+        name: Result
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+          ON_HEAD: ${{ steps.next.outputs.on-head }}
+          LIVE: ${{ steps.next.outputs.live }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          if [ "$ON_HEAD" != true ]; then
+            printf 'created=true\ndeploy=true\n' >> "$GITHUB_OUTPUT"
+          elif [ "$LIVE" = true ]; then
+            echo "::notice::Nothing new: version $VERSION is main's HEAD and already live on $ENVIRONMENT."
+            echo "Nothing new: version $VERSION is main's HEAD and already live on $ENVIRONMENT." >> "$GITHUB_STEP_SUMMARY"
+            printf 'created=false\ndeploy=false\n' >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Version $VERSION is main's HEAD but not live on $ENVIRONMENT yet: deploying it again."
+            echo "Version $VERSION is main's HEAD but not live on $ENVIRONMENT yet: deploying it again." >> "$GITHUB_STEP_SUMMARY"
+            printf 'created=false\ndeploy=true\n' >> "$GITHUB_OUTPUT"
+          fi
