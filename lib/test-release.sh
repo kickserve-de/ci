@@ -88,7 +88,19 @@ check "stops at the first match, skips its own commit" "$(paste -sd' ' - < "$MOC
 
 case_dir
 fixture "deployments?environment=production&per_page=100" '[]'
-check "no previous deployment → nothing" "$(dep previous production $HEAD)" ""
+OUT=$(dep previous production $HEAD); RC=$?
+check "no previous deployment → nothing, exit 0" "$RC:$OUT" "0:"
+
+case_dir
+fixture "deployments?environment=production&per_page=100" "[{\"id\":1,\"sha\":\"$HEAD\"}]"
+OUT=$(dep previous production $HEAD); RC=$?
+check "only its own deployment → nothing, exit 0" "$RC:$OUT" "0:"
+
+case_dir
+fixture "deployments?environment=production&per_page=100" '[{"id":1,"sha":"aaa"}]'
+fixture "deployments/1/statuses?per_page=100" '[{"state":"failure"}]'
+OUT=$(dep previous production $HEAD); RC=$?
+check "only failed other deployments → nothing, exit 0" "$RC:$OUT" "0:"
 
 echo
 echo "$PASS passed, $FAIL failed (release helpers)"
