@@ -88,6 +88,13 @@ Repo-specific deploy scripts (no Deployer) can still use the
 `check-gate` and `post-deploy` actions directly. Repos deployed by AWS CodePipeline wait for
 the release with `actions/wait-codepipeline` before `post-deploy`.
 
+Laravel Forge sites call `deploy-forge.yml` instead of `deploy-deployer.yml`, with
+`forge-organization`, `forge-server` and `forge-site` in place of `host` and a
+`FORGE_API_TOKEN` secret (scopes `site:manage-deploys`, `server:view`). It starts
+the deploy through the Forge API (`actions/forge-deploy`) and fails when Forge
+deployed another commit than the run's. Turn off quick deploy for the site in
+Forge, so every deploy runs through the workflow.
+
 ## Release (versioned production deploys)
 
 A version is a plain integer per repo (1, 2, 3 …): a git tag `N` and a GitHub
