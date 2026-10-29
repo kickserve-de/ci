@@ -36,8 +36,12 @@ on:
       node-version:
         type: string
         default: '20'
+      tools:
+        description: Extra CLI tools to set up before the commands run (space separated); supported - shopware-cli
+        type: string
+        default: ''
       shopware-cli:
-        description: Install shopware-cli before the build
+        description: Deprecated, use tools - shopware-cli
         type: boolean
         default: false
       build:
@@ -146,7 +150,8 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
-      - if: inputs.shopware-cli
+      - if: contains(format(' {0} ', inputs.tools), ' shopware-cli ') || inputs.shopware-cli
+        name: Set up shopware-cli
         uses: shopware/shopware-cli-action@v1
 
       # A missing secret stays unset; deploy.php decides whether that is fatal.
