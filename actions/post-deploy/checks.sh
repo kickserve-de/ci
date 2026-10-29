@@ -28,7 +28,11 @@ else
 fi
 
 # Lighthouse: one result per path, red below min, yellow below target.
-[ -z "$LIGHTHOUSE_PATHS" ] && exit 0
+# Required requests (e.g. the GTM container) are checked in the same browser run.
+if [ -z "$LIGHTHOUSE_PATHS" ]; then
+  [ -n "${REQUIRED_REQUESTS:-}" ] && bash "$RECORD" requests hard fail "required-requests needs lighthouse-paths"
+  exit 0
+fi
 headers='{}'
 [ -n "$BASIC_AUTH" ] && headers="$(jq -nc --arg a "Basic $(printf '%s' "$BASIC_AUTH" | base64 | tr -d '\n')" '{Authorization: $a}')"
 preset=()
@@ -46,7 +50,19 @@ for path in $LIGHTHOUSE_PATHS; do
       --chrome-flags="--headless=new --no-sandbox --disable-dev-shm-usage" \
       --output=json --output-path="$report"; then
     bash "$RECORD" "lighthouse $path" soft fail "Lighthouse did not finish"
+    [ -n "${REQUIRED_REQUESTS:-}" ] && bash "$RECORD" "requests $path" hard fail "not checked, Lighthouse did not finish"
     continue
+  fi
+  if [ -n "${REQUIRED_REQUESTS:-}" ]; then
+    missing="$(jq -r --arg required "$REQUIRED_REQUESTS" '
+      [.audits["network-requests"].details.items[]?.url] as $urls
+      | [$required | splits("\\s+") | select(. != "") | select(. as $r | $urls | any(contains($r)) | not)]
+      | join(" ")' "$report")"
+    if [ -z "$missing" ]; then
+      bash "$RECORD" "requests $path" hard pass "$(wc -w <<<"$REQUIRED_REQUESTS" | tr -d ' ') required requests loaded"
+    else
+      bash "$RECORD" "requests $path" hard fail "never requested: $missing"
+    fi
   fi
   read -r detail worst < <(jq -r '
     .categories | to_entries
