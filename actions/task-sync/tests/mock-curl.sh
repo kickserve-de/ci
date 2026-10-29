@@ -17,7 +17,7 @@ while [ "$#" -gt 0 ]; do
 done
 jq -nc --arg method "$method" --arg url "$url" --arg payload "$payload" \
   '{method: $method, url: $url, payload: $payload}' >> "$MOCK_DIR/requests"
-n=$(wc -l < "$MOCK_DIR/requests")
+n=$(wc -l < "$MOCK_DIR/requests" | tr -d " ")
 response="$MOCK_DIR/$n.json"
 if [ ! -f "$response" ]; then
   printf '{"errors":[{"message":"Unexpected request"}]}'
