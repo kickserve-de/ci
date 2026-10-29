@@ -1,0 +1,51 @@
+# After every push to main: runs the tests, then points the newest major tag
+# (v1, later v2 …) at the pushed commit, so all @vN callers get the change.
+# Older major tags stay put: tag main as vN+1 by hand before merging a breaking change.
+# The tag only moves forward: a commit that is not ahead of it is left alone.
+# GITHUB_TOKEN may not move a tag over workflow file changes; then add a repo
+# secret TAG_TOKEN (fine-grained token on this repo: contents + workflows write).
+name: Move major tag
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time, oldest first, so the tag never jumps back.
+concurrency:
+  group: move-major-tag
+  cancel-in-progress: false
+
+jobs:
+  release-tests:
+    uses: ./.github/workflows/release-tests.yml
+  task-sync-tests:
+    uses: ./.github/workflows/task-sync-tests.yml
+
+  tag:
+    needs: [release-tests, task-sync-tests]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Move the newest major tag
+        env:
+          GH_TOKEN: ${{ secrets.TAG_TOKEN || github.token }}
+        run: |
+          repo="repos/$GITHUB_REPOSITORY"
+          tag=$(gh api --paginate "$repo/tags?per_page=100" --jq '.[].name' | { grep -xE 'v[0-9]+' || true; } | sort -V | tail -n1)
+          if [ -z "$tag" ]; then
+            echo "::warning::No major tag (v1, v2 …) yet, nothing moved."; exit 0
+          fi
+          old=$(gh api "$repo/commits/refs/tags/$tag" --jq .sha)
+          status=$(gh api "$repo/compare/$old...$GITHUB_SHA" --jq .status)
+          if [ "$status" != ahead ]; then
+            echo "$tag stays on ${old:0:7} ($GITHUB_SHA is $status)."; exit 0
+          fi
+          gh api -X PATCH "$repo/git/refs/tags/$tag" -f sha="$GITHUB_SHA" -F force=true --silent
+          echo "Moved $tag from ${old:0:7} to ${GITHUB_SHA:0:7}." | tee -a "$GITHUB_STEP_SUMMARY"

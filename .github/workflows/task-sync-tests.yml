@@ -5,11 +5,8 @@ on:
     paths:
       - 'actions/task-sync/**'
       - '.github/workflows/task-sync-tests.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'actions/task-sync/**'
-      - '.github/workflows/task-sync-tests.yml'
+  # Push to main: run by move-major-tag.yml before it moves the tag.
+  workflow_call:
 
 permissions:
   contents: read
