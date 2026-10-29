@@ -64,6 +64,10 @@ on:
       lighthouse-target:
         type: string
         default: '80'
+      required-requests:
+        description: URL parts every Lighthouse path must request in the browser, e.g. googletagmanager.com/gtm.js?id=GTM-XXXX (space separated); a missing one fails the deploy
+        type: string
+        default: ''
       warmup-hits:
         description: Requests per Lighthouse path before measuring (raise for load-balanced setups)
         type: string
@@ -203,6 +207,7 @@ jobs:
           lighthouse-paths: ${{ inputs.lighthouse-paths }}
           lighthouse-min: ${{ inputs.lighthouse-min }}
           lighthouse-target: ${{ inputs.lighthouse-target }}
+          required-requests: ${{ inputs.required-requests }}
           warmup-hits: ${{ inputs.warmup-hits }}
           basic-auth: ${{ secrets.BASIC_AUTH }}
           check-token: ${{ secrets.CHECK_TOKEN }}
