@@ -32,8 +32,9 @@ case "$mode" in
     ;;
   previous)
     list=$(gh api "$repo/deployments?environment=$env&per_page=100" --jq '.[] | "\(.id) \(.sha)"')
+    # An if, not an && chain: a last non-matching line must not become the exit code.
     while read -r id commit; do
-      [ -n "$id" ] && [ "$commit" != "$sha" ] && succeeded "$id" && { echo "$commit"; break; }
+      if [ -n "$id" ] && [ "$commit" != "$sha" ] && succeeded "$id"; then echo "$commit"; break; fi
     done <<< "$list"
     ;;
   *) echo "usage: deployments.sh live|previous <environment> <sha>" >&2; exit 64 ;;
