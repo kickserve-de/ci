@@ -1,0 +1,42 @@
+name: Release tests
+
+on:
+  pull_request:
+    paths:
+      - 'lib/next-version.sh'
+      - 'lib/deployments.sh'
+      - 'lib/test-release.sh'
+      - 'lib/tests/**'
+      - 'actions/release-tasks/**'
+      - 'actions/task-sync/**'
+      - '.github/workflows/release-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'lib/next-version.sh'
+      - 'lib/deployments.sh'
+      - 'lib/test-release.sh'
+      - 'lib/tests/**'
+      - 'actions/release-tasks/**'
+      - 'actions/task-sync/**'
+      - '.github/workflows/release-tests.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Shell syntax
+        run: bash -n lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh} actions/release-tasks/{update.sh,test.sh}
+      - name: ShellCheck
+        run: shellcheck -x lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh} actions/release-tasks/{update.sh,test.sh}
+      - name: Version helpers
+        run: bash lib/test-release.sh
+      - name: Release tasks
+        run: bash actions/release-tasks/test.sh
