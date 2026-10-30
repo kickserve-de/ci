@@ -89,11 +89,17 @@ Repo-specific deploy scripts (no Deployer) can still use the
 the release with `actions/wait-codepipeline` before `post-deploy`.
 
 Laravel Forge sites call `deploy-forge.yml` instead of `deploy-deployer.yml`, with
-`forge-organization`, `forge-server` and `forge-site` in place of `host` and a
-`FORGE_API_TOKEN` secret (scopes `site:manage-deploys`, `server:view`). It starts
-the deploy through the Forge API (`actions/forge-deploy`) and fails when Forge
-deployed another commit than the run's. Turn off quick deploy for the site in
-Forge, so every deploy runs through the workflow.
+`forge-organization`, `forge-server` and `forge-site` in place of `host`. It
+starts the deploy through the site's deploy hook (`actions/forge-deploy`), waits
+for it through the Forge API and fails when Forge deployed another commit than
+the run's. Turn off quick deploy for the site in Forge, so every deploy runs
+through the workflow. Secrets:
+
+- `FORGE_DEPLOY_HOOK`: the site's deploy hook URL (Forge → site → Deployments →
+  Deploy hook), as an environment secret in `staging` and `production`, because
+  each site has its own hook.
+- `FORGE_API_TOKEN`: Forge API token with **only** the scope `server:view`; it
+  just reads the deployment status. One org secret covers all Forge repos.
 
 ## Release (versioned production deploys)
 
