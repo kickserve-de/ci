@@ -97,7 +97,16 @@ through the workflow. Secrets:
 
 - `FORGE_DEPLOY_HOOK`: the site's deploy hook URL (Forge → site → Deployments →
   Deploy hook), as an environment secret in `staging` and `production`, because
-  each site has its own hook.
+  each site has its own hook. Without GitHub environments, keep one repo secret
+  per site and pass it explicitly instead of `secrets: inherit`:
+
+  ```yaml
+  secrets:
+    FORGE_DEPLOY_HOOK: ${{ secrets.FORGE_DEPLOY_HOOK_STAGING }}  # _PRODUCTION in the production deploy
+    FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+    BASIC_AUTH: ${{ secrets.BASIC_AUTH }}
+    CHECK_TOKEN: ${{ secrets.CHECK_TOKEN }}
+  ```
 - `FORGE_API_TOKEN`: Forge API token with **only** the scope `server:view`; it
   just reads the deployment status. One org secret covers all Forge repos.
 
