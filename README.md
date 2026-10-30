@@ -89,11 +89,32 @@ Repo-specific deploy scripts (no Deployer) can still use the
 the release with `actions/wait-codepipeline` before `post-deploy`.
 
 Laravel Forge sites call `deploy-forge.yml` instead of `deploy-deployer.yml`, with
-`forge-organization`, `forge-server` and `forge-site` in place of `host` and a
-`FORGE_API_TOKEN` secret (scopes `site:manage-deploys`, `server:view`). It starts
-the deploy through the Forge API (`actions/forge-deploy`) and fails when Forge
-deployed another commit than the run's. Turn off quick deploy for the site in
-Forge, so every deploy runs through the workflow.
+`forge-organization`, `forge-server` and `forge-site` in place of `host`. It
+starts the deploy through the site's deploy hook (`actions/forge-deploy`), waits
+for it through the Forge API and fails when Forge deployed another commit than
+the run's. Turn off quick deploy for the site in Forge, so every deploy runs
+through the workflow. Secrets:
+
+- `FORGE_DEPLOY_HOOK`: the site's deploy hook URL (Forge → site → Deployments →
+  Deploy hook), as an environment secret in `staging` and `production`, because
+  each site has its own hook.
+- `FORGE_API_TOKEN`: Forge API token with **only** the scope `server:view`; it
+  just reads the deployment status. One org secret covers all Forge repos.
+
+Security notes:
+
+- `server:view` is not read-only in effect: it can read the deploy hook of every
+  site the token can see, and so start deployments there. It cannot change
+  deploy scripts, environment files or any other site setting (that needs
+  `site:manage-deploys` and other `site:*` scopes). A leaked token can deploy
+  what is already on the configured branches, but cannot run code of its own on
+  the servers. That is why the workflow starts deploys through the hook and does
+  not need `site:manage-deploys`.
+- Never give the token `site:manage-deploys`; with it, whoever holds the token
+  can rewrite the deploy script and run any command on the server.
+- The deploy hook URL contains its own token: keep it a secret, never in a
+  variable or log. If it leaks, refresh it in Forge (the old one stops working
+  at once) and update the environment secret.
 
 ## Release (versioned production deploys)
 

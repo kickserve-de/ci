@@ -1,4 +1,4 @@
-# Deploy a Laravel Forge site through the Forge API, then smoke test and Lighthouse.
+# Deploy a Laravel Forge site through its deploy hook, then smoke test and Lighthouse.
 # Quick deploy (deploy on push) is off in Forge, so every deploy runs through here.
 # Production only deploys when the PR checks on the commit are green (the gate
 # waits while they still run).
@@ -59,10 +59,13 @@ on:
         type: string
         default: '2'
     secrets:
-      FORGE_API_TOKEN:
+      FORGE_DEPLOY_HOOK:
         # Not required for the same reason as SSH_PRIVATE_KEY in deploy-deployer.yml:
         # an environment secret is invisible to jobs without that environment.
-        description: Forge API token with site:manage-deploys and server:view (repo, environment or org secret)
+        description: Deploy hook URL of the site (environment secret, one per site)
+        required: false
+      FORGE_API_TOKEN:
+        description: Forge API token with server:view only, reads the deployment status (repo, environment or org secret)
         required: false
       BASIC_AUTH:
         description: user:password if the environment is behind basic auth
@@ -105,6 +108,7 @@ jobs:
           organization: ${{ inputs.forge-organization }}
           server: ${{ inputs.forge-server }}
           site: ${{ inputs.forge-site }}
+          deploy-hook: ${{ secrets.FORGE_DEPLOY_HOOK }}
           token: ${{ secrets.FORGE_API_TOKEN }}
           timeout: ${{ inputs.timeout }}
 
