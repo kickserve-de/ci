@@ -1,9 +1,9 @@
 name: Deploy with Laravel Forge
 description: >
-  Starts a Forge deployment of a site through the Forge API and waits until it
-  has ended. Fails when it fails, is cancelled, times out or deployed another
-  commit than sha. Turn off quick deploy (deploy on push) for the site, so every
-  deploy runs through here.
+  Starts a Forge deployment of a site through its deploy hook and waits until it
+  has ended (status through the Forge API). Fails when it fails, is cancelled,
+  times out or deployed another commit than sha. Turn off quick deploy (deploy
+  on push) for the site, so every deploy runs through here.
 
 inputs:
   organization:
@@ -15,8 +15,11 @@ inputs:
   site:
     description: Forge site id
     required: true
+  deploy-hook:
+    description: Deploy hook URL of the site (pass a secret)
+    required: true
   token:
-    description: Forge API token with site:manage-deploys and server:view (pass a secret)
+    description: Forge API token with server:view, only reads the deployment status (pass a secret)
     required: true
   sha:
     default: ${{ github.sha }}
@@ -29,6 +32,7 @@ runs:
   steps:
     - shell: bash
       env:
+        DEPLOY_HOOK: ${{ inputs.deploy-hook }}
         FORGE_API_TOKEN: ${{ inputs.token }}
         ORGANIZATION: ${{ inputs.organization }}
         SERVER: ${{ inputs.server }}
