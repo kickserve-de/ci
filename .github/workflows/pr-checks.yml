@@ -169,16 +169,7 @@ jobs:
         with:
           name: audit
           level: soft
-          run: |
-            rc=0
-            if [ "${{ inputs.php }}" = true ] && [ -f composer.lock ]; then
-              composer audit --locked --no-interaction || rc=1
-            fi
-            if [ "${{ inputs.node }}" = true ] && [ -f package.json ]; then
-              if [ "${{ inputs.package-manager }}" = yarn ]; then yarn audit --groups dependencies --level high || rc=1
-              else npm audit --omit=dev --audit-level=high || rc=1; fi
-            fi
-            exit "$rc"
+          run: bash "$KICKSERVE_CI_LIB/audit.sh" "${{ inputs.php }}" "${{ inputs.node }}" "${{ inputs.package-manager }}"
       - if: inputs.syntax-paths != ''
         uses: kickserve-de/ci/actions/run-check@v1
         with:
