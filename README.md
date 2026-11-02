@@ -108,7 +108,9 @@ through the workflow. Secrets:
     CHECK_TOKEN: ${{ secrets.CHECK_TOKEN }}
   ```
 - `FORGE_API_TOKEN`: Forge API token with **only** the scope `server:view`; it
-  just reads the deployment status. One org secret covers all Forge repos.
+  just reads the deployment status. One org secret covers all Forge repos. Never
+  add further scopes. The deploy hook URL is a secret too; if it leaks, refresh
+  it in Forge and update the secret. Details are in the internal workflow guide.
 
 ## Release (versioned production deploys)
 
