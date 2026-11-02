@@ -34,8 +34,11 @@ inputs:
   basic-auth:
     description: user:password for HTTP basic auth (pass a secret)
     default: ''
+  check-header:
+    description: Name of the header in which the smoke test sends check-token (both must be set)
+    default: ''
   check-token:
-    description: Sent as X-Kickserve-Check header by the smoke test, so a WAF rule can let it through (pass a secret)
+    description: Value of the check-header header (pass a secret)
     default: ''
   token:
     default: ${{ github.token }}
@@ -68,6 +71,7 @@ runs:
         WARMUP_HITS: ${{ inputs.warmup-hits }}
         FORM_FACTOR: ${{ inputs.form-factor }}
         BASIC_AUTH: ${{ inputs.basic-auth }}
+        CHECK_HEADER: ${{ inputs.check-header }}
         CHECK_TOKEN: ${{ inputs.check-token }}
         CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
         RECORD: ${{ github.action_path }}/../../lib/record.sh
