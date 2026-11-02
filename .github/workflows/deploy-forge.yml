@@ -58,6 +58,10 @@ on:
         description: Requests per Lighthouse path before measuring (raise for load-balanced setups)
         type: string
         default: '2'
+      check-header:
+        description: Name of the header in which the smoke test sends CHECK_TOKEN (both must be set)
+        type: string
+        default: ''
     secrets:
       FORGE_DEPLOY_HOOK:
         # Not required for the same reason as SSH_PRIVATE_KEY in deploy-deployer.yml:
@@ -71,7 +75,7 @@ on:
         description: user:password if the environment is behind basic auth
         required: false
       CHECK_TOKEN:
-        description: Sent as X-Check-Header header by the smoke test, so a WAF rule can let it through
+        description: Value of the check-header header
         required: false
 
 permissions:
@@ -130,4 +134,5 @@ jobs:
           required-requests: ${{ inputs.required-requests }}
           warmup-hits: ${{ inputs.warmup-hits }}
           basic-auth: ${{ secrets.BASIC_AUTH }}
+          check-header: ${{ inputs.check-header }}
           check-token: ${{ secrets.CHECK_TOKEN }}
