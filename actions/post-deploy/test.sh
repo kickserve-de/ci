@@ -8,7 +8,8 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 mkdir "$TMP/bin"
-printf '#!/usr/bin/env bash\necho "200 0.1"\n' > "$TMP/bin/curl"
+# curl records its arguments, one per line, so header tests can check them.
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" >> "$RUNNER_TEMP/curl-args"\necho "200 0.1"\n' > "$TMP/bin/curl"
 printf '#!/usr/bin/env bash\n[ -z "${MOCK_NPM_FAIL:-}" ]\n' > "$TMP/bin/npm"
 # node lighthouse.mjs <url> <report> <form-factor>; records its arguments and whether BASIC_AUTH reached it.
 cat > "$TMP/bin/node" << 'EOF'
@@ -26,7 +27,7 @@ EOF
 chmod +x "$TMP/bin/curl" "$TMP/bin/npm" "$TMP/bin/node"
 export PATH="$TMP/bin:$PATH" RUNNER_TEMP="$TMP" RECORD="$DIR/../../lib/record.sh"
 export BASE_URL=https://example.com SMOKE_PATHS=/ LIGHTHOUSE_MIN=50 LIGHTHOUSE_TARGET=80 WARMUP_HITS=1 \
-  FORM_FACTOR=desktop BASIC_AUTH="" CHECK_TOKEN=""
+  FORM_FACTOR=desktop BASIC_AUTH="" CHECK_HEADER="" CHECK_TOKEN=""
 GTM='googletagmanager.com/gtm.js?id=GTM-TG55ZK9'
 PASS=0 FAIL=0
 
@@ -65,6 +66,16 @@ check "no required requests → no requests check" \
 LIGHTHOUSE_PATHS=/en REQUIRED_REQUESTS="" MOCK_URLS="" BASIC_AUTH='stage:p@ss' run
 check "basic auth reaches the Lighthouse page via the environment, not the command line" \
   '[[ "$(cat "$TMP/node-args")" == *"/lighthouse.mjs"$'"'"'\n'"'"'"https://example.com/en"$'"'"'\n'"'"'*$'"'"'\n'"'"'"desktop"$'"'"'\n'"'"'"BASIC_AUTH=stage:p@ss" ]]'
+
+rm -f "$TMP/curl-args"
+LIGHTHOUSE_PATHS="" CHECK_HEADER=X-Test-Check CHECK_TOKEN=s3cret run
+check "check header and token set → smoke test sends the project's header" \
+  'grep -qx "X-Test-Check: s3cret" "$TMP/curl-args"'
+
+rm -f "$TMP/curl-args"
+LIGHTHOUSE_PATHS="" CHECK_HEADER="" CHECK_TOKEN=s3cret run
+check "token without header name → no header sent" \
+  '! grep -q "s3cret" "$TMP/curl-args"'
 
 LIGHTHOUSE_PATHS="/en /de" REQUIRED_REQUESTS="$GTM" MOCK_URLS="" MOCK_NPM_FAIL=1 run
 check "Lighthouse install fails → soft fail per path, required requests not checked" \

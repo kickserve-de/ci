@@ -244,7 +244,7 @@ callers get the fix once it is merged into `main` (see Versions).
 
 1. Settings → Branches → `main`: require the status check `pr / checks`.
 2. Secrets: `SSH_PRIVATE_KEY` (deploy key, repo or environment secret), optional `BASIC_AUTH` (`user:password`) as a repo secret (the post-deploy job has no environment, so environment secrets are not visible to it).
-3. Behind a bot protection that blocks the smoke test: repo secret `CHECK_TOKEN`; the WAF setup is in the internal workflow guide.
+3. Behind a bot protection that blocks the smoke test: input `check-header` (header name) and repo secret `CHECK_TOKEN` (its value); the smoke test sends the header only when both are set. The bot protection setup is in the internal workflow guide.
 
 ## Versions
 
