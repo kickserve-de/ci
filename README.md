@@ -108,22 +108,9 @@ through the workflow. Secrets:
     CHECK_TOKEN: ${{ secrets.CHECK_TOKEN }}
   ```
 - `FORGE_API_TOKEN`: Forge API token with **only** the scope `server:view`; it
-  just reads the deployment status. One org secret covers all Forge repos.
-
-Security notes:
-
-- `server:view` is not read-only in effect: it can read the deploy hook of every
-  site the token can see, and so start deployments there. It cannot change
-  deploy scripts, environment files or any other site setting (that needs
-  `site:manage-deploys` and other `site:*` scopes). A leaked token can deploy
-  what is already on the configured branches, but cannot run code of its own on
-  the servers. That is why the workflow starts deploys through the hook and does
-  not need `site:manage-deploys`.
-- Never give the token `site:manage-deploys`; with it, whoever holds the token
-  can rewrite the deploy script and run any command on the server.
-- The deploy hook URL contains its own token: keep it a secret, never in a
-  variable or log. If it leaks, refresh it in Forge (the old one stops working
-  at once) and update the environment secret.
+  just reads the deployment status. One org secret covers all Forge repos. Never
+  add further scopes. The deploy hook URL is a secret too; if it leaks, refresh
+  it in Forge and update the secret. Details are in the internal workflow guide.
 
 ## Release (versioned production deploys)
 
@@ -226,7 +213,7 @@ repo settings, so this file never changes when the tracker does:
 - variable `TASK_API` (falls back to `ASANA_API`; empty = Asana, Kickserve Work `https://<host>/api/1.0`)
 - optional variables `TASK_MERGE_SECTION` (move the task on merge into main), `TASK_LOG_MAX` (default 50), `MAIN_BRANCH`
 
-Repos outside the kickserve-de org (rabe-bike, kitchenz, …) do not get secrets through
+Repos outside the kickserve-de org do not get secrets through
 `secrets: inherit`; they pass the token and the API base explicitly:
 
 ```yaml
@@ -257,7 +244,7 @@ callers get the fix once it is merged into `main` (see Versions).
 
 1. Settings → Branches → `main`: require the status check `pr / checks`.
 2. Secrets: `SSH_PRIVATE_KEY` (deploy key, repo or environment secret), optional `BASIC_AUTH` (`user:password`) as a repo secret (the post-deploy job has no environment, so environment secrets are not visible to it).
-3. Behind Cloudflare (smoke test gets `403` with `cf-mitigated: challenge`): repo secret `CHECK_TOKEN` with a random value (kept in 1Password as `<repo> check token`), and a WAF custom rule with action Skip for `http.host eq "<host>" and any(http.request.headers["x-kickserve-check"][*] eq "<value>")`.
+3. Behind a bot protection that blocks the smoke test: repo secret `CHECK_TOKEN`; the WAF setup is in the internal workflow guide.
 
 ## Versions
 
