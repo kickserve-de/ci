@@ -258,9 +258,11 @@ New org:
 
 1. Create the private repo `<org>/ci` (empty). Settings → Actions → General →
    Access: "Accessible from repositories in the `<org>` organization".
-2. `ssh-keygen -t ed25519 -N '' -f key`; add `key.pub` to `<org>/ci` as deploy key
-   with write access, and `key` here as repo secret `MIRROR_KEY_<ORG>` (upper case,
-   `-` as `_`). Delete both files afterwards.
+2. Fine-grained token (GitHub → Settings → Developer settings): resource owner
+   `<org>`, only the repo `ci`, Contents and Workflows read and write. Store it here
+   as repo secret `MIRROR_TOKEN_<ORG>` (upper case, `-` as `_`). A deploy key does
+   not work: GitHub rejects workflow files pushed with it. The token expires; renew
+   it and the secret before that.
 3. Add the org and secret name to the `mirror` matrix in `move-major-tag.yml`, merge,
    and check that the run pushed to `<org>/ci`.
 
