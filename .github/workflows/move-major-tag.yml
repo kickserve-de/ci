@@ -94,8 +94,8 @@ jobs:
           export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts"
 
           src=$(git rev-parse HEAD)
-          grep -rlZ 'kickserve-de/ci/' --exclude-dir=.git . | xargs -0 -r sed -i "s#kickserve-de/ci/#$ORG/ci/#g"
           git rm -q .github/workflows/move-major-tag.yml
+          grep -rlZ 'kickserve-de/ci/' --exclude-dir=.git . | xargs -0 -r sed -i "s#kickserve-de/ci/#$ORG/ci/#g"
           git add -A
           export GIT_AUTHOR_DATE=$(git show -s --format=%cI "$src") GIT_COMMITTER_DATE=$(git show -s --format=%cI "$src")
           git -c user.name=kickserve-ci -c user.email=ci@kickserve.de \
