@@ -59,8 +59,9 @@ jobs:
   # private copy <org>/ci with main and the newest major tag. The copy points the
   # self references (kickserve-de/ci/...) at itself and drops this workflow.
   # Commit dates come from the source, so an unchanged tag gives the same commit
-  # and the push is a no-op. Access: one write deploy key per copy, its private
-  # key stored here as repo secret MIRROR_KEY_<ORG>.
+  # and the push is a no-op. Access: one fine-grained token per copy (contents +
+  # workflows write; deploy keys may not push workflow files), stored here as repo
+  # secret MIRROR_TOKEN_<ORG>.
   mirror:
     needs: tag
     if: needs.tag.outputs.tag != ''
@@ -71,9 +72,7 @@ jobs:
       matrix:
         include:
           - org: rabe-bike
-            secret: MIRROR_KEY_RABE_BIKE
-          - org: kitchenz
-            secret: MIRROR_KEY_KITCHENZ
+            secret: MIRROR_TOKEN_RABE_BIKE
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,14 +83,11 @@ jobs:
         env:
           ORG: ${{ matrix.org }}
           TAG: ${{ needs.tag.outputs.tag }}
-          SSH_KEY: ${{ secrets[matrix.secret] }}
+          TOKEN: ${{ secrets[matrix.secret] }}
         run: |
-          if [ -z "$SSH_KEY" ]; then
+          if [ -z "$TOKEN" ]; then
             echo "::error::Repo secret ${{ matrix.secret }} is missing."; exit 1
           fi
-          key="$RUNNER_TEMP/mirror_key"
-          printf '%s\n' "$SSH_KEY" > "$key" && chmod 600 "$key"
-          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts"
 
           src=$(git rev-parse HEAD)
           git rm -q .github/workflows/move-major-tag.yml
@@ -101,5 +97,5 @@ jobs:
           git -c user.name=kickserve-ci -c user.email=ci@kickserve.de \
             commit -q -m "Mirror of kickserve-de/ci@$src for $ORG"
 
-          git push --force "git@github.com:$ORG/ci.git" "HEAD:refs/heads/main" "HEAD:refs/tags/$TAG"
+          git push --force "https://x-access-token:$TOKEN@github.com/$ORG/ci.git" "HEAD:refs/heads/main" "HEAD:refs/tags/$TAG"
           echo "$ORG/ci: $TAG = kickserve-de/ci@${src:0:7}" | tee -a "$GITHUB_STEP_SUMMARY"
