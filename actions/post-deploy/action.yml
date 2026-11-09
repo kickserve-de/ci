@@ -25,6 +25,9 @@ inputs:
   required-requests:
     description: URL parts every Lighthouse path must request in the browser, e.g. googletagmanager.com/gtm.js?id=GTM-XXXX (space separated); a missing one fails the deploy
     default: ''
+  https-redirect-paths:
+    description: Paths whose http URL must answer 301 or 308 with the same URL on https, e.g. /en (space separated, empty to skip); a missing redirect fails the deploy. Sent without basic auth or check token
+    default: ''
   warmup-hits:
     description: Requests per Lighthouse path before measuring, so caches are warm (raise for load-balanced setups)
     default: '2'
@@ -68,6 +71,7 @@ runs:
         LIGHTHOUSE_MIN: ${{ inputs.lighthouse-min }}
         LIGHTHOUSE_TARGET: ${{ inputs.lighthouse-target }}
         REQUIRED_REQUESTS: ${{ inputs.required-requests }}
+        HTTPS_REDIRECT_PATHS: ${{ inputs.https-redirect-paths }}
         WARMUP_HITS: ${{ inputs.warmup-hits }}
         FORM_FACTOR: ${{ inputs.form-factor }}
         BASIC_AUTH: ${{ inputs.basic-auth }}
