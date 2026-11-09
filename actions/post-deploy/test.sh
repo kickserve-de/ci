@@ -9,7 +9,17 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 mkdir "$TMP/bin"
 # curl records its arguments, one per line, so header tests can check them.
-printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" >> "$RUNNER_TEMP/curl-args"\necho "200 0.1"\n' > "$TMP/bin/curl"
+# http URLs answer $MOCK_REDIRECT ("<code> <location>"), by default a correct 301 to https.
+cat > "$TMP/bin/curl" << 'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$RUNNER_TEMP/curl-args"
+url="${*: -1}"
+if [[ "$url" == http://* ]]; then
+  echo "${MOCK_REDIRECT:-301 https://${url#http://}}"
+else
+  echo "200 0.1"
+fi
+EOF
 printf '#!/usr/bin/env bash\n[ -z "${MOCK_NPM_FAIL:-}" ]\n' > "$TMP/bin/npm"
 # node lighthouse.mjs <url> <report> <form-factor>; records its arguments and whether BASIC_AUTH reached it.
 cat > "$TMP/bin/node" << 'EOF'
@@ -84,6 +94,31 @@ check "Lighthouse install fails → soft fail per path, required requests not ch
 LIGHTHOUSE_PATHS=/en REQUIRED_REQUESTS="$GTM" MOCK_URLS="https://www.$GTM" MOCK_LH_PARTIAL=1 run
 check "Lighthouse exits 1 with partial report → scores kept, missing category shown, soft fail" \
   '[[ "$(result "lighthouse /en")" == "soft fail Perf"*"90"*"BP"*"–"*"SEO"*"90 (incomplete: PROTOCOL_TIMEOUT)" && "$(result "requests /en")" == hard\ pass* ]]'
+
+LIGHTHOUSE_PATHS="" HTTPS_REDIRECT_PATHS="/en /de" run
+check "http answers 301 to the same https URL → pass" \
+  '[[ "$(result https-redirect)" == "hard pass 2 paths redirect to https" ]]'
+
+LIGHTHOUSE_PATHS="" HTTPS_REDIRECT_PATHS=/en MOCK_REDIRECT="308 https://example.com/en" run
+check "308 counts as a redirect" '[[ "$(result https-redirect)" == hard\ pass* ]]'
+
+LIGHTHOUSE_PATHS="" HTTPS_REDIRECT_PATHS=/en MOCK_REDIRECT="200 " run
+check "http answers 200 → hard fail" '[[ "$(result https-redirect)" == "hard fail no https redirect: /en (200)" ]]'
+
+LIGHTHOUSE_PATHS="" HTTPS_REDIRECT_PATHS=/en MOCK_REDIRECT="302 https://example.com/en" run
+check "temporary 302 → hard fail" '[[ "$(result https-redirect)" == hard\ fail* ]]'
+
+LIGHTHOUSE_PATHS="" HTTPS_REDIRECT_PATHS=/en MOCK_REDIRECT="301 https://example.com/" run
+check "redirect to another path → hard fail naming it" \
+  '[[ "$(result https-redirect)" == "hard fail no https redirect: /en (301 → https://example.com/)" ]]'
+
+LIGHTHOUSE_PATHS="" HTTPS_REDIRECT_PATHS="" run
+check "no redirect paths → no https-redirect check" '[[ -z "$(result https-redirect)" ]]'
+
+rm -f "$TMP/curl-args"
+LIGHTHOUSE_PATHS="" HTTPS_REDIRECT_PATHS=/en BASIC_AUTH='stage:p@ss' CHECK_HEADER=X-Test-Check CHECK_TOKEN=s3cret run
+check "basic auth and check token are not sent over http" \
+  '[[ "$(grep -c "stage:p@ss" "$TMP/curl-args")" == 1 && "$(grep -c "s3cret" "$TMP/curl-args")" == 1 ]]'
 
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

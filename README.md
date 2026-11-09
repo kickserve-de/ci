@@ -84,6 +84,11 @@ Scripts that must load in the browser (tag manager, consent banner) go into
 `required-requests` as URL parts, e.g.
 `googletagmanager.com/gtm.js?id=GTM-XXXX`: the Lighthouse run checks that every
 Lighthouse path requested them, and a missing one is a hard failure.
+Sites that must send http visitors to https list a few paths in
+`https-redirect-paths`, e.g. `/en/register`: the http URL of each must answer
+301 or 308 with the same URL on https, else the `https-redirect` row is a hard
+failure. It sends no basic auth or check token, so the redirect has to answer
+before them.
 Repo-specific deploy scripts (no Deployer) can still use the
 `check-gate` and `post-deploy` actions directly. Repos deployed by AWS CodePipeline wait for
 the release with `actions/wait-codepipeline` before `post-deploy`.

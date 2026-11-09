@@ -27,6 +27,30 @@ else
   bash "$RECORD" smoke hard fail "failed: ${failed[*]}"
 fi
 
+# HTTPS redirect: the http URL of each path must answer 301 or 308 with the same URL on https.
+# The smoke test asks the https URL, so it cannot see a missing redirect.
+# No basic auth or check token here: they would travel in clear text.
+if [ -n "${HTTPS_REDIRECT_PATHS:-}" ]; then
+  if [[ "$BASE_URL" != https://* ]]; then
+    bash "$RECORD" https-redirect hard fail "url must start with https://"
+  else
+    wrong=()
+    for path in $HTTPS_REDIRECT_PATHS; do
+      out="$(curl -sS -o /dev/null --max-time 30 -w '%{http_code} %{redirect_url}' \
+        "http://${BASE_URL#https://}$path" 2>&1)" || out="000 "
+      code="${out%% *}" location="${out#* }"
+      echo "http $path → $code $location"
+      [[ "$code" =~ ^30[18]$ && "$location" == "$BASE_URL$path" ]] \
+        || wrong+=("$path ($code${location:+ → $location})")
+    done
+    if [ ${#wrong[@]} -eq 0 ]; then
+      bash "$RECORD" https-redirect hard pass "$(wc -w <<<"$HTTPS_REDIRECT_PATHS" | tr -d ' ') paths redirect to https"
+    else
+      bash "$RECORD" https-redirect hard fail "no https redirect: ${wrong[*]}"
+    fi
+  fi
+fi
+
 # Lighthouse: one result per path, red below min, yellow below target.
 # Required requests (e.g. the GTM container) are checked in the same browser run.
 if [ -z "$LIGHTHOUSE_PATHS" ]; then
