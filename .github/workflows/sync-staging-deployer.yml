@@ -216,6 +216,11 @@ jobs:
       - name: Import into staging
         run: |
           read -r V_HOST V_PORT V_USER V_PASS V_NAME <<< "$DB_ENV"
+          db_of() { $SSH "cd '$1' && set -a && . './$ENV_FILE' && set +a && echo \"\${$V_HOST}:\${$V_PORT:-3306}/\${$V_NAME}\""; }
+          prod_db="$(db_of "$PRODUCTION_PATH")"; staging_db="$(db_of "$STAGING_PATH")"
+          if [ -z "$staging_db" ] || [ "$staging_db" = "$prod_db" ]; then
+            echo "::error::staging and production use the same database ($staging_db); nothing imported"; exit 1
+          fi
           mysql_staging="cd '$STAGING_PATH' && set -a && . './$ENV_FILE' && set +a && export MYSQL_PWD=\"\${$V_PASS}\" && mysql -h \"\${$V_HOST}\" -P \"\${$V_PORT:-3306}\" -u \"\${$V_USER}\" \"\${$V_NAME}\""
           gunzip -c anonymized.sql.gz | $SSH "$mysql_staging"
           if [ -f keep.sql.gz ]; then gunzip -c keep.sql.gz | $SSH "$mysql_staging"; fi
