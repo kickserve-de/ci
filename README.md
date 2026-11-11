@@ -136,6 +136,9 @@ releases get sensible notes). Other tags are ignored for the numbering.
   `Ready for Deployment` move to `Done` (never completed), tasks in other
   sections stay where they are. A red smoke test or Lighthouse after a
   successful deploy still counts as live. Reruns post no second comment.
+  For version 1 the tasks start after the last production deployment, never
+  at old non-version tags. A task the tracker no longer knows (deleted) is
+  skipped with a warning.
 
 `.github/workflows/release.yml`:
 

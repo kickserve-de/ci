@@ -100,6 +100,16 @@ check "failing task does not stop the next; batch fails; summary lists both" \
   '[[ $RC == 22 ]] && clean_errors && [[ $(writes) == "[\"/sections/11/addTask\",\"/tasks/$B/stories\"]" ]] &&
    grep -q "$A.*failed" "$MOCK_DIR/summary" && grep -q "$B.*posted" "$MOCK_DIR/summary" && grep -q "HTTP 403.*Forbidden" "$MOCK_DIR/err"'
 
+start "$A"$'\n'"$B"
+respond '{"errors":[{"message":"task: Not a recognized ID: '"$A"'"}]}' 404 22
+respond "$MEMBERS"; respond "$SECTIONS"; respond "$EMPTY"; respond '{"data":{}}'; respond '{"data":{}}'; run
+check "unknown task (404) is a warning, not a failure; the next one still runs" \
+  '[[ $RC == 0 ]] && clean_errors && [[ $(writes) == "[\"/sections/11/addTask\",\"/tasks/$B/stories\"]" ]] &&
+   grep -q "::warning::Task $A not found" "$MOCK_DIR/out" && grep -q "$A.*not found, skipped" "$MOCK_DIR/summary"'
+
+start; respond "$MEMBERS"; respond "$SECTIONS"; respond "$EMPTY"; respond '{"errors":[{"message":"Not found"}]}' 404 22; run
+check "404 on a later write still fails the batch" '[[ $RC == 22 ]] && grep -q "$A.*failed" "$MOCK_DIR/summary"'
+
 start; respond "$MEMBERS"; respond "$SECTIONS"; respond '{"errors":[{"message":"Forbidden"}]}' 403 22; run
 check "failed comment read prevents all writes for the task" '[[ $RC == 22 ]] && [[ $(writes) == "[]" ]] && clean_errors'
 

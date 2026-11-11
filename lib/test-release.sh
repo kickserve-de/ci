@@ -36,10 +36,13 @@ echo "── previous"
 check "highest version below" "$(nv '12 a\n14 b\n15 c\n' '15\n14\n12\n' previous 14)" "12"
 check "version 1 skips its own numeric release" "$(nv "1 $HEAD\nv3.1 a\n" '1\nv3.1\n' previous 1)" "v3.1"
 check "nothing before the first version" "$(nv "1 $HEAD\n" '1\n' previous 1)" ""
+check "previous-version: highest version below" "$(nv '12 a\n14 b\nv9 c\n' '14\n12\n' previous-version 14)" "12"
+check "previous-version: version 1 ignores semver tags and releases" "$(nv "1 $HEAD\nv6.4.20.0 a\n" '1\nv6.4.20.0\n' previous-version 1)" ""
 
 echo "── usage"
 bash "$DIR/next-version.sh" next $HEAD 2> /dev/null; check "missing files → 64" "$?" 64
 bash "$DIR/next-version.sh" previous x "$TMP/tags" "$TMP/releases" 2> /dev/null; check "non-numeric version → 64" "$?" 64
+bash "$DIR/next-version.sh" previous-version x "$TMP/tags" "$TMP/releases" 2> /dev/null; check "previous-version: non-numeric → 64" "$?" 64
 bash "$DIR/deployments.sh" live production 2> /dev/null; check "deployments usage → 64" "$?" 64
 
 echo "── deployments"
