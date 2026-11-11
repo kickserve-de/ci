@@ -13,6 +13,7 @@ PR, the same deploy flow, and the results as a traffic light in the PR.
 | Manual "Release" on `main` (admin/maintain) | `release.yml`: role and gate check → version `N` (tag + GitHub Release "Version N") → production deploy → `release-tasks.yml`: "Live mit Version N" on the tasks, those in "Ready for Deployment" to Done | Releases page, block `Production` in the merged PRs, task comments, job summary |
 | Manual "Run workflow" | `rollback-deployer.yml`: previous Deployer release | Job log |
 | Manual "Run workflow" | `unlock-deployer.yml`: removes a stale Deployer lock after a killed deploy | Job log |
+| Manual "Run workflow" | `sync-staging-deployer.yml`: production database (anonymized) and folders to staging, snapshot to Google Drive; no deploy runs meanwhile | Job log, files in the Drive folder |
 | Every push and PR opened/merged | `task-sync.yml`: task ID from commit, branch or PR title | Task link in the PR description, one pinned Commit-Log comment on the task |
 
 ## Traffic light
@@ -191,6 +192,63 @@ is live), `runner` (default `ubuntu-latest`); outputs `version`, `deploy`,
 
 Run `lib/test-release.sh` and `actions/release-tasks/test.sh` for the offline
 tests (the `Release tests` workflow runs them).
+
+## Staging sync (Deployer)
+
+`sync-staging-deployer.yml` copies production to staging on a Deployer host, which
+is where production and staging live (one host, one SSH user):
+
+1. **Dump** (holds `deploy-production`): `mysqldump` of production on the host,
+   with the database settings read from `env-file` there, then import into a
+   throwaway database on the runner and run the repo's `anonymize-sql` in it. Without
+   that file the sync stops. Personal data never reaches staging or the snapshot.
+2. **Write staging** (holds `deploy-staging`): keep `keep-tables` from staging,
+   import the anonymized dump, put the kept tables back, copy `sync-dirs` from
+   production to staging on the host (`rsync --delete`, without `exclude`), run
+   `after-sync` in staging's `current/`.
+3. **Snapshot** (when `snapshot-folder-id` is set): the anonymized dump and an archive
+   of `sync-dirs` (without `exclude`) go to that Google Drive folder as
+   `<name>-db-<date>.sql.gz` / `<name>-files-<date>.tgz` plus a copy named
+   `-latest`; dated files older than `snapshot-keep-days` are deleted. A repo's
+   ddev command can import the `-latest` files.
+
+The deploys use the same concurrency groups, so no deploy runs while a sync reads
+production or writes staging. A repo whose deploy does not come from
+`deploy-deployer.yml` adds `concurrency: {group: deploy-<environment>, cancel-in-progress: false}`
+to its deploy job. Staging changes that are not on production are lost, except in
+`keep-tables`.
+
+`.github/workflows/sync-staging.yml`:
+
+```yaml
+name: Sync staging
+on:
+  workflow_dispatch:
+jobs:
+  sync:
+    uses: kickserve-de/ci/.github/workflows/sync-staging-deployer.yml@v1
+    with:
+      ssh-host: example.your-server.de
+      ssh-user: deploy
+      production-path: /var/www/production
+      staging-path: /var/www/staging
+      anonymize-sql: dev/data/anonymize.sql
+      sync-dirs: public/media
+      snapshot-folder-id: <Google Drive folder id>
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      RCLONE_CONFIG_CONTENT: ${{ secrets.RCLONE_CONFIG_CONTENT }}
+```
+
+Other inputs: `ssh-port`, `env-file` (default `shared/.env`), `db-env` (variable
+names for host, port, user, password, database; default the Laravel names),
+`dump-options`, `db-image` (default `mariadb:10.11`; match the server),
+`keep-tables`, `exclude`, `after-sync`, `snapshot-name` (default the repo name),
+`snapshot-keep-days` (default 30), `rclone-remote` (default `gdrive`), `runner`
+(default `ubuntu-latest`; needs Docker). `RCLONE_CONFIG_CONTENT` is the base64
+of an `rclone.conf` with a Drive remote; kickserve-de has it as an org secret.
+`SSH_PRIVATE_KEY` must be a repo secret: the jobs have no environment, so they
+add no deployment records that `release.yml` would read.
 
 ## Task sync
 
