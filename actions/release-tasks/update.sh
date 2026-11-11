@@ -4,6 +4,7 @@
 # task gets the comment "Live mit Version N: <release URL>" once.
 # Rerunning is safe: a moved task is no longer in the ready section, a comment with the release URL
 # is not posted again. A failing task does not stop the others; the exit status is the first failure.
+# A task the tracker does not know (HTTP 404 on its first read, e.g. deleted) is only a warning.
 #
 # Usage: update.sh tasks.txt   (one task ID per line)
 # Env:   TASK_TOKEN     token (Asana PAT or Kickserve Work token)
@@ -72,12 +73,22 @@ STATUS=0
 } >> "$SUMMARY"
 for TASK in $TASKS; do
   echo "── Task $TASK"
-  if RESULT=$(release_task "$TASK"); then
+  ERR=$(mktemp)
+  if RESULT=$(release_task "$TASK" 2> "$ERR"); then
+    cat "$ERR" >&2
     echo "| [$TASK]($LINK_BASE$TASK) | $RESULT |" >> "$SUMMARY"
   else
     RC=$?
+    cat "$ERR" >&2
+    if grep -q "^$LOG_PREFIX: task $TASK: GET /tasks/$TASK?[^ ]*: HTTP 404," "$ERR"; then
+      echo "::warning::Task $TASK not found (deleted or no access), skipped."
+      echo "| [$TASK]($LINK_BASE$TASK) | not found, skipped | |" >> "$SUMMARY"
+      rm -f "$ERR"
+      continue
+    fi
     [ "$STATUS" -ne 0 ] || STATUS=$RC
     echo "| [$TASK]($LINK_BASE$TASK) | failed, see log | |" >> "$SUMMARY"
   fi
+  rm -f "$ERR"
 done
 exit "$STATUS"
