@@ -2,10 +2,11 @@
 # anonymized on the runner with the repo's SQL file (personal data never reaches
 # staging or the snapshot), imported into staging, shared folders are copied on the
 # host, and optionally the anonymized dump and a folder archive go to Google Drive
-# as the snapshot for local setups.
+# as the snapshot for local setups. Sites without a database (Kirby) set
+# database: false and anonymize a copy of the folders with the repo's script instead.
 #
-# Holds the deploy-production concurrency group while dumping and deploy-staging while
-# writing staging, the groups deploy-deployer.yml uses: no deploy runs at the same time.
+# Holds the deploy-production concurrency group while reading production and deploy-staging
+# while writing staging, the groups deploy-deployer.yml uses: no deploy runs at the same time.
 # A repo with its own deploy workflow puts its deploy job into the same groups.
 name: Sync staging
 
@@ -29,6 +30,10 @@ on:
         description: Deployer deploy_path of staging on the host
         type: string
         required: true
+      database:
+        description: Copy the database; false for sites without one (e.g. Kirby), which then need anonymize-files
+        type: boolean
+        default: true
       env-file:
         description: Env file with the database settings, relative to each deploy path (sourced by sh on the host)
         type: string
@@ -37,6 +42,10 @@ on:
         description: Names of the host, port, user, password and database variables in env-file, in this order
         type: string
         default: DB_HOST DB_PORT DB_USERNAME DB_PASSWORD DB_DATABASE
+      db-url-env:
+        description: Name of a variable in env-file holding a database URL (mysql://user:password@host:port/name, e.g. DATABASE_URL for Shopware); replaces db-env
+        type: string
+        default: ''
       dump-options:
         description: Options for mysqldump on the host
         type: string
@@ -46,11 +55,19 @@ on:
         type: string
         default: mariadb:10.11
       anonymize-sql:
-        description: SQL file in the repo that removes personal data; required, the sync stops without it
+        description: SQL file in the repo that removes personal data; required with database, the sync stops without it
         type: string
         default: dev/data/anonymize.sql
+      anonymize-files:
+        description: Script in the repo (run by its shebang on the host) that removes personal data from a copy of sync-dirs, working directory = that copy with the paths below shared/; staging and the snapshot get the result. Required without database
+        type: string
+        default: ''
       keep-tables:
         description: Staging tables kept across the sync (space separated), e.g. backend users
+        type: string
+        default: ''
+      staging-sql:
+        description: SQL file in the repo run on staging after the import, e.g. staging domains or base URLs; not in the snapshot
         type: string
         default: ''
       sync-dirs:
@@ -99,13 +116,53 @@ env:
   SSH_PORT: ${{ inputs.ssh-port }}
   ENV_FILE: ${{ inputs.env-file }}
   DB_ENV: ${{ inputs.db-env }}
+  DB_URL_ENV: ${{ inputs.db-url-env }}
   DUMP_OPTIONS: ${{ inputs.dump-options }}
   PRODUCTION_PATH: ${{ inputs.production-path }}
   STAGING_PATH: ${{ inputs.staging-path }}
+  SYNC_DIRS: ${{ inputs.sync-dirs }}
+  EXCLUDE: ${{ inputs.exclude }}
+  # Anonymized copy of sync-dirs on the host, beside staging's releases/ and shared/; one per run.
+  FILES_TMP: ${{ inputs.staging-path }}/.sync-files-${{ github.run_id }}
+  # sh run on the host with the database URL in $u: sets SYNC_DB_* (percent-decoded), fails on a URL without user, host or name.
+  DB_URL_PARSE: |
+    {
+      u="${u#*://}"; c="${u%@*}"; r="${u##*@}"
+      SYNC_DB_USER="${c%%:*}"; SYNC_DB_PASS=""; [ "$c" = "$SYNC_DB_USER" ] || SYNC_DB_PASS="${c#*:}"
+      hp="${r%%/*}"; SYNC_DB_NAME=""; [ "$r" = "$hp" ] || SYNC_DB_NAME="${r#*/}"; SYNC_DB_NAME="${SYNC_DB_NAME%%\?*}"
+      SYNC_DB_HOST="${hp%%:*}"; SYNC_DB_PORT=3306; [ "$hp" = "$SYNC_DB_HOST" ] || SYNC_DB_PORT="${hp#*:}"
+      dec() { case "$1" in *%*) printf '%s' "$1" | LC_ALL=C awk 'BEGIN { for (i = 0; i < 256; i++) h[sprintf("%02x", i)] = sprintf("%c", i) } { o = ""; while (match($0, /%[0-9A-Fa-f][0-9A-Fa-f]/)) { o = o substr($0, 1, RSTART - 1) h[tolower(substr($0, RSTART + 1, 2))]; $0 = substr($0, RSTART + 3) } printf "%s", o $0 }' ;; *) printf '%s' "$1" ;; esac; }
+      SYNC_DB_USER="$(dec "$SYNC_DB_USER")"; SYNC_DB_PASS="$(dec "$SYNC_DB_PASS")"; SYNC_DB_NAME="$(dec "$SYNC_DB_NAME")"
+      [ "$r" != "$u" ] && [ -n "$SYNC_DB_USER" ] && [ -n "$SYNC_DB_HOST" ] && [ -n "$SYNC_DB_NAME" ]
+    }
+  # Bash helpers for the steps (eval "$SYNC_HELPERS"). They print sh for the host, which reads
+  # the env file there: the password never leaves the host and is never in argv.
+  SYNC_HELPERS: |
+    # db_load <deploy path>: cd there, load env-file, set SYNC_DB_HOST/PORT/USER/PASS/NAME.
+    db_load() {
+      local load="cd '$1' && set -a && . './$ENV_FILE' && set +a"
+      if [ -n "$DB_URL_ENV" ]; then
+        printf '%s && u="${%s}" && %s' "$load" "$DB_URL_ENV" "$DB_URL_PARSE"
+      else
+        local h p us pw n; read -r h p us pw n <<< "$DB_ENV"
+        printf '%s && SYNC_DB_HOST="${%s}" SYNC_DB_PORT="${%s:-3306}" SYNC_DB_USER="${%s}" SYNC_DB_PASS="${%s}" SYNC_DB_NAME="${%s}"' \
+          "$load" "$h" "$p" "$us" "$pw" "$n"
+      fi
+    }
+    # db_run <deploy path> <mysql|mysqldump> <args…>: that tool against the database of the deploy path.
+    db_run() {
+      local path=$1 tool=$2; shift 2
+      printf '%s && export MYSQL_PWD="$SYNC_DB_PASS" && %s -h "$SYNC_DB_HOST" -P "$SYNC_DB_PORT" -u "$SYNC_DB_USER" %s' \
+        "$(db_load "$path")" "$tool" "$*"
+    }
+    # The database name as the host sees it, for db_run arguments.
+    db_name='"$SYNC_DB_NAME"'
+    # db_of <deploy path>: host:port/name of its database.
+    db_of() { $SSH "$(db_load "$1") && echo \"\$SYNC_DB_HOST:\$SYNC_DB_PORT/\$SYNC_DB_NAME\""; }
 
 jobs:
   dump:
-    name: Dump and anonymize production
+    name: Read and anonymize production
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     concurrency:
@@ -113,7 +170,8 @@ jobs:
       cancel-in-progress: false
     services:
       db:
-        image: ${{ inputs.db-image }}
+        # Empty image: no service container without a database.
+        image: ${{ inputs.database && inputs.db-image || '' }}
         env:
           MARIADB_ROOT_PASSWORD: sync
           MYSQL_ROOT_PASSWORD: sync
@@ -122,14 +180,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: ${{ inputs.anonymize-sql }}
+          sparse-checkout: |
+            ${{ inputs.anonymize-sql }}
+            ${{ inputs.anonymize-files || inputs.anonymize-sql }}
           sparse-checkout-cone-mode: false
 
-      - name: Anonymize SQL present
+      - name: Check inputs
         env:
+          DATABASE: ${{ inputs.database }}
           ANONYMIZE_SQL: ${{ inputs.anonymize-sql }}
+          ANONYMIZE_FILES: ${{ inputs.anonymize-files }}
+          STAGING_SQL: ${{ inputs.staging-sql }}
+          KEEP_TABLES: ${{ inputs.keep-tables }}
         run: |
-          [ -s "$ANONYMIZE_SQL" ] || { echo "::error::$ANONYMIZE_SQL is missing or empty; the sync never runs without anonymizing"; exit 1; }
+          fail() { echo "::error::$1"; exit 1; }
+          if [ "$DATABASE" = true ]; then
+            [ -s "$ANONYMIZE_SQL" ] || fail "$ANONYMIZE_SQL is missing or empty; the sync never runs without anonymizing"
+          else
+            [ -n "$ANONYMIZE_FILES" ] || fail "database: false needs anonymize-files; the sync never runs without anonymizing"
+            [ -z "$STAGING_SQL$KEEP_TABLES" ] || fail "staging-sql and keep-tables need database: true"
+          fi
+          if [ -n "$ANONYMIZE_FILES" ]; then
+            [ -s "$ANONYMIZE_FILES" ] || fail "$ANONYMIZE_FILES is missing or empty"
+            head -n 1 "$ANONYMIZE_FILES" | grep -q '^#!' || fail "$ANONYMIZE_FILES needs a shebang line, it runs as a program on the host"
+            [ -n "$SYNC_DIRS" ] || fail "anonymize-files needs sync-dirs"
+          fi
 
       - name: SSH key
         env:
@@ -143,15 +218,16 @@ jobs:
           echo "SSH=ssh -F $d/config sync-target" >> "$GITHUB_ENV"
 
       - name: Dump production
+        if: inputs.database
         run: |
-          read -r V_HOST V_PORT V_USER V_PASS V_NAME <<< "$DB_ENV"
-          # The env file is read on the host: the password never leaves it and is not in argv.
-          $SSH "cd '$PRODUCTION_PATH' && set -a && . './$ENV_FILE' && set +a && export MYSQL_PWD=\"\${$V_PASS}\" && mysqldump -h \"\${$V_HOST}\" -P \"\${$V_PORT:-3306}\" -u \"\${$V_USER}\" $DUMP_OPTIONS \"\${$V_NAME}\" | gzip" > production.sql.gz
+          eval "$SYNC_HELPERS"
+          $SSH "$(db_run "$PRODUCTION_PATH" mysqldump "$DUMP_OPTIONS" "$db_name") | gzip" > production.sql.gz
           # The host shell has no pipefail: a failed mysqldump still leaves a valid gzip, so check its end marker.
           gunzip -c production.sql.gz | tail -n 1 | grep -q "Dump completed" || { echo "::error::production dump is incomplete"; exit 1; }
           echo "production dump: $(du -h production.sql.gz | cut -f1)"
 
       - name: Anonymize
+        if: inputs.database
         env:
           DB: ${{ job.services.db.id }}
           ANONYMIZE_SQL: ${{ inputs.anonymize-sql }}
@@ -168,10 +244,30 @@ jobs:
           echo "anonymized dump: $(du -h anonymized.sql.gz | cut -f1)"
 
       - uses: actions/upload-artifact@v4
+        if: inputs.database
         with:
           name: anonymized-db
           path: anonymized.sql.gz
           retention-days: 1
+
+      - name: Copy and anonymize folders
+        if: inputs.anonymize-files != ''
+        env:
+          ANONYMIZE_FILES: ${{ inputs.anonymize-files }}
+        run: |
+          src=""; for d in $SYNC_DIRS; do src="$src '$PRODUCTION_PATH/shared/./$d'"; done
+          ex=""; for p in $EXCLUDE; do ex="$ex --exclude='$p'"; done
+          $SSH "rm -rf '$FILES_TMP' && mkdir -m 700 '$FILES_TMP' && mkdir '$FILES_TMP/files' && rsync -a --relative $ex $src '$FILES_TMP/files/'"
+          $SSH "cat > '$FILES_TMP/anonymize' && chmod 700 '$FILES_TMP/anonymize'" < "$ANONYMIZE_FILES"
+          # A folder the script deleted comes back empty, so the copy empties it on staging too.
+          dirs=""; for d in $SYNC_DIRS; do dirs="$dirs '$d'"; done
+          $SSH "cd '$FILES_TMP/files' && ../anonymize && mkdir -p $dirs"
+          echo "anonymized folders: $($SSH "du -sh '$FILES_TMP/files'" | cut -f1)"
+
+      - name: Remove the folder copy
+        if: failure() && inputs.anonymize-files != ''
+        run: |
+          if [ -n "${SSH:-}" ]; then $SSH "rm -rf '$FILES_TMP'"; fi
 
       - name: Clean up
         if: always()
@@ -186,9 +282,15 @@ jobs:
       group: deploy-staging
       cancel-in-progress: false
     env:
-      SYNC_DIRS: ${{ inputs.sync-dirs }}
-      EXCLUDE: ${{ inputs.exclude }}
+      DATABASE: ${{ inputs.database }}
+      ANONYMIZE_FILES: ${{ inputs.anonymize-files }}
     steps:
+      - uses: actions/checkout@v4
+        if: inputs.staging-sql != ''
+        with:
+          sparse-checkout: ${{ inputs.staging-sql }}
+          sparse-checkout-cone-mode: false
+
       - name: SSH key
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -201,34 +303,45 @@ jobs:
           echo "SSH=ssh -F $d/config sync-target" >> "$GITHUB_ENV"
 
       - uses: actions/download-artifact@v4
+        if: inputs.database
         with:
           name: anonymized-db
 
       - name: Keep staging tables
-        if: inputs.keep-tables != ''
+        if: inputs.database && inputs.keep-tables != ''
         env:
           KEEP_TABLES: ${{ inputs.keep-tables }}
         run: |
-          read -r V_HOST V_PORT V_USER V_PASS V_NAME <<< "$DB_ENV"
-          $SSH "cd '$STAGING_PATH' && set -a && . './$ENV_FILE' && set +a && export MYSQL_PWD=\"\${$V_PASS}\" && mysqldump -h \"\${$V_HOST}\" -P \"\${$V_PORT:-3306}\" -u \"\${$V_USER}\" $DUMP_OPTIONS \"\${$V_NAME}\" $KEEP_TABLES | gzip" > keep.sql.gz
+          eval "$SYNC_HELPERS"
+          $SSH "$(db_run "$STAGING_PATH" mysqldump "$DUMP_OPTIONS" "$db_name" "$KEEP_TABLES") | gzip" > keep.sql.gz
           gunzip -c keep.sql.gz | tail -n 1 | grep -q "Dump completed" || { echo "::error::staging dump of keep-tables is incomplete"; exit 1; }
 
       - name: Import into staging
+        if: inputs.database
         run: |
-          read -r V_HOST V_PORT V_USER V_PASS V_NAME <<< "$DB_ENV"
-          db_of() { $SSH "cd '$1' && set -a && . './$ENV_FILE' && set +a && echo \"\${$V_HOST}:\${$V_PORT:-3306}/\${$V_NAME}\""; }
+          eval "$SYNC_HELPERS"
           prod_db="$(db_of "$PRODUCTION_PATH")"; staging_db="$(db_of "$STAGING_PATH")"
-          if [ -z "$staging_db" ] || [ "$staging_db" = "$prod_db" ]; then
-            echo "::error::staging and production use the same database ($staging_db); nothing imported"; exit 1
+          if [ -z "$staging_db" ] || [ -z "$prod_db" ] || [ "$staging_db" = "$prod_db" ]; then
+            echo "::error::cannot tell staging's database from production's ($staging_db / $prod_db); nothing imported"; exit 1
           fi
-          mysql_staging="cd '$STAGING_PATH' && set -a && . './$ENV_FILE' && set +a && export MYSQL_PWD=\"\${$V_PASS}\" && mysql -h \"\${$V_HOST}\" -P \"\${$V_PORT:-3306}\" -u \"\${$V_USER}\" \"\${$V_NAME}\""
-          gunzip -c anonymized.sql.gz | $SSH "$mysql_staging"
-          if [ -f keep.sql.gz ]; then gunzip -c keep.sql.gz | $SSH "$mysql_staging"; fi
+          gunzip -c anonymized.sql.gz | $SSH "$(db_run "$STAGING_PATH" mysql "$db_name")"
+          if [ -f keep.sql.gz ]; then gunzip -c keep.sql.gz | $SSH "$(db_run "$STAGING_PATH" mysql "$db_name")"; fi
+
+      - name: Staging SQL
+        if: inputs.staging-sql != ''
+        env:
+          STAGING_SQL: ${{ inputs.staging-sql }}
+        run: |
+          [ -s "$STAGING_SQL" ] || { echo "::error::$STAGING_SQL is missing or empty"; exit 1; }
+          eval "$SYNC_HELPERS"
+          $SSH "$(db_run "$STAGING_PATH" mysql "$db_name")" < "$STAGING_SQL"
 
       - name: Copy folders
         if: inputs.sync-dirs != ''
         run: |
-          src=""; for d in $SYNC_DIRS; do src="$src '$PRODUCTION_PATH/shared/./$d'"; done
+          # Without a database the anonymized copy is the source, never production itself.
+          base="$PRODUCTION_PATH/shared"; [ -z "$ANONYMIZE_FILES" ] || base="$FILES_TMP/files"
+          src=""; for d in $SYNC_DIRS; do src="$src '$base/./$d'"; done
           ex=""; for p in $EXCLUDE; do ex="$ex --exclude='$p'"; done
           # --relative keeps the paths below shared/, so the exclude patterns read the same as in the archive.
           $SSH "rsync -a --relative --delete --delete-excluded $ex $src '$STAGING_PATH/shared/'"
@@ -248,8 +361,11 @@ jobs:
           printf '%s' "$RCLONE_CONFIG_CONTENT" | base64 -d > "$RUNNER_TEMP/sync-ssh/rclone.conf"
           rc() { "$RUNNER_TEMP/sync-ssh/rclone" --config "$RUNNER_TEMP/sync-ssh/rclone.conf" --drive-root-folder-id "$FOLDER" "$@"; }
           stamp="$(date -u +%Y%m%d-%H%M)"
-          rc copyto anonymized.sql.gz "$REMOTE:$NAME-db-$stamp.sql.gz"
-          rc copyto "$REMOTE:$NAME-db-$stamp.sql.gz" "$REMOTE:$NAME-db-latest.sql.gz"
+          # The anonymized dump, before staging-sql and keep-tables: production's schema and settings.
+          if [ "$DATABASE" = true ]; then
+            rc copyto anonymized.sql.gz "$REMOTE:$NAME-db-$stamp.sql.gz"
+            rc copyto "$REMOTE:$NAME-db-$stamp.sql.gz" "$REMOTE:$NAME-db-latest.sql.gz"
+          fi
           if [ -n "$SYNC_DIRS" ]; then
             ex=""; for p in $EXCLUDE; do ex="$ex --exclude='$p'"; done
             $SSH "tar czf - -C '$STAGING_PATH/shared' $ex $SYNC_DIRS" | rc rcat "$REMOTE:$NAME-files-$stamp.tgz"
@@ -267,4 +383,6 @@ jobs:
 
       - name: Clean up
         if: always()
-        run: rm -rf anonymized.sql.gz keep.sql.gz "$RUNNER_TEMP/sync-ssh"
+        run: |
+          if [ -n "$ANONYMIZE_FILES" ] && [ -n "${SSH:-}" ]; then $SSH "rm -rf '$FILES_TMP'" || true; fi
+          rm -rf anonymized.sql.gz keep.sql.gz "$RUNNER_TEMP/sync-ssh"

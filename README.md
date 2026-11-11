@@ -203,8 +203,9 @@ is where production and staging live (one host, one SSH user):
    throwaway database on the runner and run the repo's `anonymize-sql` in it. Without
    that file the sync stops. Personal data never reaches staging or the snapshot.
 2. **Write staging** (holds `deploy-staging`): keep `keep-tables` from staging,
-   import the anonymized dump, put the kept tables back, copy `sync-dirs` from
-   production to staging on the host (`rsync --delete`, without `exclude`).
+   import the anonymized dump, put the kept tables back, run the repo's
+   `staging-sql` (staging-only settings such as domains or base URLs), copy
+   `sync-dirs` from production to staging on the host (`rsync --delete`, without `exclude`).
 3. **Snapshot** (when `snapshot-folder-id` is set): the anonymized dump and an archive
    of `sync-dirs` (without `exclude`) go to that Google Drive folder as
    `<name>-db-<date>.sql.gz` / `<name>-files-<date>.tgz` plus a copy named
@@ -214,6 +215,19 @@ is where production and staging live (one host, one SSH user):
 4. **After sync**: `after-sync` runs in staging's `current/`, last, so a failure
    there does not block the snapshot.
 
+**Database URL** (Shopware): set `env-file: shared/.env.local` and
+`db-url-env: DATABASE_URL`. The URL (`mysql://user:password@host:port/name`,
+percent-encoded parts are decoded) is read on the host and replaces `db-env`.
+
+**Without a database** (Kirby): set `database: false` and `anonymize-files` to a
+script in the repo. The sync copies `sync-dirs` from production to a temporary
+folder beside staging's `shared/` (while holding `deploy-production`), runs the
+script there (by its shebang, working directory = the copy, paths as below
+`shared/`), and staging and the snapshot get only that copy. A failing script
+stops the sync; a folder the script deletes is emptied on staging. Leave folders
+staging keeps for itself, such as Kirby's `accounts`, out of `sync-dirs`.
+`anonymize-files` also works with a database, for uploads with personal data.
+
 Staging code can be ahead of production: migrations that exist only on staging
 are missing after the import, and production's migration table says they never
 ran. Set `after-sync` to the same migrate step the staging deploy runs, plus the
@@ -222,8 +236,8 @@ cache flush; it is project-specific, the workflow only runs it:
 | Framework | `after-sync` |
 |---|---|
 | TYPO3 | `vendor/bin/typo3 extension:setup && vendor/bin/typo3 cache:flush` (schema from `ext_tables.sql`, never drops) |
-| Magento 2 | `bin/magento setup:upgrade --keep-generated && bin/magento cache:flush`; also set staging's base URLs (`bin/magento config:set web/secure/base_url …`), they come from production's `core_config_data` |
-| Shopware 6 | `bin/console database:migrate --all && bin/console cache:clear`; also point the sales channel domains to staging |
+| Magento 2 | `bin/magento setup:upgrade --keep-generated && bin/magento cache:flush`; set staging's base URLs in `staging-sql` (`core_config_data` comes from production) |
+| Shopware 6 | `bin/console database:migrate --all && bin/console cache:clear`; point the sales channel domains to staging in `staging-sql` (`sales_channel_domain`) |
 | Laravel | `php artisan migrate --force && php artisan optimize:clear` |
 
 Use the PHP binary of the host when it is not the default (e.g. `/usr/bin/php83 vendor/bin/typo3 …`).
@@ -256,10 +270,24 @@ jobs:
       RCLONE_CONFIG_CONTENT: ${{ secrets.RCLONE_CONFIG_CONTENT }}
 ```
 
+Kirby, without a database:
+
+```yaml
+    with:
+      ssh-host: example.your-server.de
+      ssh-user: deploy
+      production-path: /var/www/production
+      staging-path: /var/www/staging
+      database: false
+      anonymize-files: dev/anonymize-files.sh
+      sync-dirs: content storage/forms
+      snapshot-folder-id: <Google Drive folder id>
+```
+
 Other inputs: `ssh-port`, `env-file` (default `shared/.env`), `db-env` (variable
 names for host, port, user, password, database; default the Laravel names),
 `dump-options`, `db-image` (default `mariadb:10.11`; match the server),
-`keep-tables`, `exclude`, `after-sync`, `snapshot-name` (default the repo name),
+`keep-tables`, `staging-sql`, `exclude`, `after-sync`, `snapshot-name` (default the repo name),
 `snapshot-keep-days` (default 30), `rclone-remote` (default `gdrive`), `runner`
 (default `ubuntu-latest`; needs Docker). `RCLONE_CONFIG_CONTENT` is the base64
 of an `rclone.conf` with a Drive remote; kickserve-de has it as an org secret.
