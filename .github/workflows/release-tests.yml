@@ -8,6 +8,8 @@ on:
       - 'lib/test-release.sh'
       - 'lib/audit.sh'
       - 'lib/test-audit.sh'
+      - 'lib/test-sync-staging.sh'
+      - '.github/workflows/sync-staging-deployer.yml'
       - 'lib/tests/**'
       - 'actions/release-tasks/**'
       - 'actions/task-sync/**'
@@ -29,13 +31,15 @@ jobs:
         with:
           persist-credentials: false
       - name: Shell syntax
-        run: bash -n lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh,audit.sh,test-audit.sh} actions/release-tasks/{update.sh,test.sh} actions/post-deploy/{checks.sh,test.sh} actions/forge-deploy/{deploy.sh,test.sh}
+        run: bash -n lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh,audit.sh,test-audit.sh,test-sync-staging.sh} actions/release-tasks/{update.sh,test.sh} actions/post-deploy/{checks.sh,test.sh} actions/forge-deploy/{deploy.sh,test.sh}
       - name: ShellCheck
-        run: shellcheck -x lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh,audit.sh,test-audit.sh} actions/release-tasks/{update.sh,test.sh} actions/post-deploy/{checks.sh,test.sh} actions/forge-deploy/{deploy.sh,test.sh}
+        run: shellcheck -x lib/{next-version.sh,deployments.sh,test-release.sh,tests/mock-gh.sh,audit.sh,test-audit.sh,test-sync-staging.sh} actions/release-tasks/{update.sh,test.sh} actions/post-deploy/{checks.sh,test.sh} actions/forge-deploy/{deploy.sh,test.sh}
       - name: Version helpers
         run: bash lib/test-release.sh
       - name: Audit hint
         run: bash lib/test-audit.sh
+      - name: Staging sync host code
+        run: bash lib/test-sync-staging.sh
       - name: Release tasks
         run: bash actions/release-tasks/test.sh
       - name: Post-deploy checks
