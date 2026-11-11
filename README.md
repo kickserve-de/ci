@@ -204,13 +204,29 @@ is where production and staging live (one host, one SSH user):
    that file the sync stops. Personal data never reaches staging or the snapshot.
 2. **Write staging** (holds `deploy-staging`): keep `keep-tables` from staging,
    import the anonymized dump, put the kept tables back, copy `sync-dirs` from
-   production to staging on the host (`rsync --delete`, without `exclude`), run
-   `after-sync` in staging's `current/`.
+   production to staging on the host (`rsync --delete`, without `exclude`).
 3. **Snapshot** (when `snapshot-folder-id` is set): the anonymized dump and an archive
    of `sync-dirs` (without `exclude`) go to that Google Drive folder as
    `<name>-db-<date>.sql.gz` / `<name>-files-<date>.tgz` plus a copy named
    `-latest`; dated files older than `snapshot-keep-days` are deleted. A repo's
-   ddev command can import the `-latest` files.
+   ddev command can import the `-latest` files. The snapshot keeps production's
+   schema, matching local branches cut from main.
+4. **After sync**: `after-sync` runs in staging's `current/`, last, so a failure
+   there does not block the snapshot.
+
+Staging code can be ahead of production: migrations that exist only on staging
+are missing after the import, and production's migration table says they never
+ran. Set `after-sync` to the same migrate step the staging deploy runs, plus the
+cache flush; it is project-specific, the workflow only runs it:
+
+| Framework | `after-sync` |
+|---|---|
+| TYPO3 | `vendor/bin/typo3 extension:setup && vendor/bin/typo3 cache:flush` (schema from `ext_tables.sql`, never drops) |
+| Magento 2 | `bin/magento setup:upgrade --keep-generated && bin/magento cache:flush`; also set staging's base URLs (`bin/magento config:set web/secure/base_url …`), they come from production's `core_config_data` |
+| Shopware 6 | `bin/console database:migrate --all && bin/console cache:clear`; also point the sales channel domains to staging |
+| Laravel | `php artisan migrate --force && php artisan optimize:clear` |
+
+Use the PHP binary of the host when it is not the default (e.g. `/usr/bin/php83 vendor/bin/typo3 …`).
 
 The deploys use the same concurrency groups, so no deploy runs while a sync reads
 production or writes staging. A repo whose deploy does not come from
