@@ -62,7 +62,7 @@ on:
         type: string
         default: ''
       after-sync:
-        description: Command run in staging's current/ after the import, e.g. a cache flush
+        description: Command run in staging's current/ after the import and the snapshot (a failure does not block the snapshot), e.g. the deploy's migrations (staging code can be ahead of production) and a cache flush
         type: string
         default: ''
       snapshot-folder-id:
@@ -233,12 +233,6 @@ jobs:
           # --relative keeps the paths below shared/, so the exclude patterns read the same as in the archive.
           $SSH "rsync -a --relative --delete --delete-excluded $ex $src '$STAGING_PATH/shared/'"
 
-      - name: After sync
-        if: inputs.after-sync != ''
-        env:
-          AFTER_SYNC: ${{ inputs.after-sync }}
-        run: $SSH "cd '$STAGING_PATH/current' && $AFTER_SYNC"
-
       - name: Snapshot to Google Drive
         if: inputs.snapshot-folder-id != ''
         env:
@@ -263,6 +257,13 @@ jobs:
           fi
           rc delete "$REMOTE:" --min-age "${KEEP_DAYS}d" --include "$NAME-db-2*" --include "$NAME-files-2*"
           rc lsl "$REMOTE:" --include "$NAME-*-latest.*"
+
+      - name: After sync
+        if: inputs.after-sync != ''
+        # Last: a failing migration leaves the snapshot (production schema, for local setups from main) in place.
+        env:
+          AFTER_SYNC: ${{ inputs.after-sync }}
+        run: $SSH "cd '$STAGING_PATH/current' && $AFTER_SYNC"
 
       - name: Clean up
         if: always()
