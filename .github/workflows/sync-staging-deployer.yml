@@ -86,6 +86,10 @@ on:
         description: Google Drive folder for the snapshot (anonymized dump + sync-dirs archive); empty skips it
         type: string
         default: ''
+      snapshot-exclude:
+        description: Patterns left out of the snapshot archive only (space separated, tar --exclude), e.g. large downloads like *.zip *.mp4; staging keeps these files
+        type: string
+        default: ''
       snapshot-name:
         description: File name prefix of the snapshot; default the repo name
         type: string
@@ -354,6 +358,7 @@ jobs:
           NAME: ${{ inputs.snapshot-name || github.event.repository.name }}
           REMOTE: ${{ inputs.rclone-remote }}
           KEEP_DAYS: ${{ inputs.snapshot-keep-days }}
+          SNAPSHOT_EXCLUDE: ${{ inputs.snapshot-exclude }}
         run: |
           [ -n "$RCLONE_CONFIG_CONTENT" ] || { echo "::error::secret RCLONE_CONFIG_CONTENT is not set"; exit 1; }
           curl -fsSL -o "$RUNNER_TEMP/rclone.zip" https://downloads.rclone.org/v1.68.2/rclone-v1.68.2-linux-amd64.zip
@@ -367,7 +372,8 @@ jobs:
             rc copyto "$REMOTE:$NAME-db-$stamp.sql.gz" "$REMOTE:$NAME-db-latest.sql.gz"
           fi
           if [ -n "$SYNC_DIRS" ]; then
-            ex=""; for p in $EXCLUDE; do ex="$ex --exclude='$p'"; done
+            # set -f: patterns like *.zip must reach tar, not match files on the runner.
+            ex=""; set -f; for p in $EXCLUDE $SNAPSHOT_EXCLUDE; do ex="$ex --exclude='$p'"; done; set +f
             $SSH "tar czf - -C '$STAGING_PATH/shared' $ex $SYNC_DIRS" | rc rcat "$REMOTE:$NAME-files-$stamp.tgz"
             rc copyto "$REMOTE:$NAME-files-$stamp.tgz" "$REMOTE:$NAME-files-latest.tgz"
           fi
