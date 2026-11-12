@@ -207,11 +207,12 @@ is where production and staging live (one host, one SSH user):
    `staging-sql` (staging-only settings such as domains or base URLs), copy
    `sync-dirs` from production to staging on the host (`rsync --delete`, without `exclude`).
 3. **Snapshot** (when `snapshot-folder-id` is set): the anonymized dump and an archive
-   of `sync-dirs` (without `exclude`) go to that Google Drive folder as
+   of `sync-dirs` (without `exclude` and `snapshot-exclude`) go to that Google Drive folder as
    `<name>-db-<date>.sql.gz` / `<name>-files-<date>.tgz` plus a copy named
    `-latest`; dated files older than `snapshot-keep-days` are deleted. A repo's
    ddev command can import the `-latest` files. The snapshot keeps production's
-   schema, matching local branches cut from main.
+   schema, matching local branches cut from main. `snapshot-exclude` (e.g. `*.zip *.mp4`)
+   keeps large downloads out of the archive only; staging keeps them.
 4. **After sync**: `after-sync` runs in staging's `current/`, last, so a failure
    there does not block the snapshot.
 
@@ -287,7 +288,7 @@ Kirby, without a database:
 Other inputs: `ssh-port`, `env-file` (default `shared/.env`), `db-env` (variable
 names for host, port, user, password, database; default the Laravel names),
 `dump-options`, `db-image` (default `mariadb:10.11`; match the server),
-`keep-tables`, `staging-sql`, `exclude`, `after-sync`, `snapshot-name` (default the repo name),
+`keep-tables`, `staging-sql`, `exclude`, `after-sync`, `snapshot-exclude`, `snapshot-name` (default the repo name),
 `snapshot-keep-days` (default 30), `rclone-remote` (default `gdrive`), `runner`
 (default `ubuntu-latest`; needs Docker). `RCLONE_CONFIG_CONTENT` is the base64
 of an `rclone.conf` with a Drive remote; kickserve-de has it as an org secret.

@@ -78,7 +78,7 @@ done
 
 # Files-only flow: the step scripts from the workflow, with bash as the host.
 step() { ruby -ryaml -e 'j = YAML.load_file(ARGV[0])["jobs"][ARGV[1]]; print j["steps"].find { |s| s["name"] == ARGV[2] }["run"]' "$WORKFLOW" "$1" "$2"; }
-run_step() { (cd "$TMP/repo" && bash -e -c "$(step "$1" "$2")") >/dev/null 2>&1; }
+run_step() { (cd "$TMP/repo" && bash -e -c "$(step "$1" "$2")") >"$TMP/step.log" 2>&1; }
 P="$TMP/files/prod/shared" S="$TMP/files/stage/shared"
 mkdir -p "$P/content/a" "$P/storage/forms" "$S/storage/forms" "$S/storage/accounts" "$TMP/repo/dev"
 echo 'Title: A' > "$P/content/a/page.txt"; echo 'Email: x@example.com' > "$P/storage/forms/entry.txt"
@@ -97,6 +97,28 @@ run_step dump 'Copy and anonymize folders' && rc=0 || rc=failed
 check "files: failing script fails the step" "$rc" "failed"
 run_step dump 'Remove the folder copy'
 check "files: copy removed after a failure" "$(ls -A "$TMP/files/stage")" "shared"
+
+# Snapshot: curl, unzip and rclone mocked; rclone rcat keeps the archive in $TMP/archive.tgz.
+cat > "$TMP/bin/curl" <<'EOF'
+#!/bin/sh
+while [ $# -gt 0 ]; do [ "$1" = -o ] && touch "$2"; shift; done
+EOF
+cat > "$TMP/bin/unzip" <<'EOF'
+#!/bin/sh
+while [ $# -gt 1 ]; do shift; done
+printf '#!/bin/sh\nfor a; do [ "$a" = rcat ] && exec cat > "$ARCHIVE"; done\nexit 0\n' > "$1/rclone"
+chmod +x "$1/rclone"
+EOF
+chmod +x "$TMP/bin/curl" "$TMP/bin/unzip"
+mkdir -p "$S/content/a/big" && echo zip > "$S/content/a/big/archive.zip"
+touch "$TMP/repo/match.zip" # a file in the working directory must not expand the pattern
+mkdir -p "$TMP/runner/sync-ssh"
+export RUNNER_TEMP="$TMP/runner" ARCHIVE="$TMP/archive.tgz" DATABASE=false RCLONE_CONFIG_CONTENT=eA== FOLDER=f NAME=n \
+  REMOTE=r KEEP_DAYS=30 SYNC_DIRS="content" SNAPSHOT_EXCLUDE="*.zip"
+run_step sync 'Snapshot to Google Drive' && rc=0 || rc=failed
+check "snapshot: step succeeds" "$rc" "0"; [ "$rc" = 0 ] || cat "$TMP/step.log"
+check "snapshot: snapshot-exclude left out of the archive" "$(tar tzf "$ARCHIVE" 2>&1 | grep -v '/$')" "content/a/page.txt"
+check "snapshot: staging keeps excluded files" "$(cat "$S/content/a/big/archive.zip")" "zip"
 
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
