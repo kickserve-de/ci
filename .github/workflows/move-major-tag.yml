@@ -4,7 +4,6 @@
 # The tag only moves forward: a commit that is not ahead of it is left alone.
 # GITHUB_TOKEN may not move a tag over workflow file changes; then add a repo
 # secret TAG_TOKEN (fine-grained token on this repo: contents + workflows write).
-# Then copies the tagged commit to the private mirrors in customer orgs (see README).
 name: Move major tag
 
 on:
@@ -33,8 +32,6 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: write
-    outputs:
-      tag: ${{ steps.move.outputs.tag }}
     steps:
       - name: Move the newest major tag
         id: move
@@ -54,48 +51,3 @@ jobs:
           fi
           gh api -X PATCH "$repo/git/refs/tags/$tag" -f sha="$GITHUB_SHA" -F force=true --silent
           echo "Moved $tag from ${old:0:7} to ${GITHUB_SHA:0:7}." | tee -a "$GITHUB_STEP_SUMMARY"
-
-  # Repos in other orgs cannot use this private repo, so each of those orgs gets a
-  # private copy <org>/ci with main and the newest major tag. The copy points the
-  # self references (kickserve-de/ci/...) at itself and drops this workflow.
-  # Commit dates come from the source, so an unchanged tag gives the same commit
-  # and the push is a no-op. Access: one fine-grained token per copy (contents +
-  # workflows write; deploy keys may not push workflow files), stored here as repo
-  # secret MIRROR_TOKEN_<ORG>.
-  mirror:
-    needs: tag
-    if: needs.tag.outputs.tag != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - org: rabe-bike
-            secret: MIRROR_TOKEN_RABE_BIKE
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ needs.tag.outputs.tag }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Push the copy to ${{ matrix.org }}/ci
-        env:
-          ORG: ${{ matrix.org }}
-          TAG: ${{ needs.tag.outputs.tag }}
-          TOKEN: ${{ secrets[matrix.secret] }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::error::Repo secret ${{ matrix.secret }} is missing."; exit 1
-          fi
-
-          src=$(git rev-parse HEAD)
-          git rm -q .github/workflows/move-major-tag.yml
-          grep -rlZ 'kickserve-de/ci/' --exclude-dir=.git . | xargs -0 -r sed -i "s#kickserve-de/ci/#$ORG/ci/#g"
-          git add -A
-          export GIT_AUTHOR_DATE=$(git show -s --format=%cI "$src") GIT_COMMITTER_DATE=$(git show -s --format=%cI "$src")
-          git -c user.name=kickserve-ci -c user.email=ci@kickserve.de \
-            commit -q -m "Mirror of kickserve-de/ci@$src for $ORG"
-
-          git push --force "https://x-access-token:$TOKEN@github.com/$ORG/ci.git" "HEAD:refs/heads/main" "HEAD:refs/tags/$TAG"
-          echo "$ORG/ci: $TAG = kickserve-de/ci@${src:0:7}" | tee -a "$GITHUB_STEP_SUMMARY"
