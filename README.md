@@ -48,7 +48,8 @@ jobs:
       syntax-paths: site        # PHP syntax check
       lint: npm run lint        # soft by default (lint-level: hard)
       typecheck: npm run typecheck
-      test: composer test
+      test: composer test       # hard by default (test-level: soft)
+      mysql: '5.7'              # throw-away MySQL for the tests, see below
       build: npm run build      # e.g. shopware-cli project ci . with tools: shopware-cli
       build-dirs: site/plugins/foo   # sub-packages built with npm, part of "build"
     secrets: inherit
@@ -58,6 +59,11 @@ Every non-empty command is one check with a generic name (`install`, `lint`,
 `typecheck`, `tests`, `build`); `validate` (composer.json), `audit`, `syntax`,
 `migrations` and `translations` are built in. Lint and typecheck are warnings
 until a repo sets their level to `hard`.
+
+`mysql: '<tag>'` starts a throw-away `mysql:<tag>` service container (root
+password and database `test`) on a random host port and gives every command
+`DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` and
+`DATABASE_URL`. The runner needs Docker; the self-hosted runners have it.
 
 `.github/workflows/deploy-staging.yml` and `deploy-production.yml`:
 
