@@ -363,26 +363,6 @@ callers get the fix once it is merged into `main` (see Versions).
 2. Secrets: `SSH_PRIVATE_KEY` (deploy key, repo or environment secret), optional `BASIC_AUTH` (`user:password`) as a repo secret (the post-deploy job has no environment, so environment secrets are not visible to it).
 3. Behind a bot protection that blocks the smoke test: input `check-header` (header name) and repo secret `CHECK_TOKEN` (its value); the smoke test sends the header only when both are set. The bot protection setup is in the internal workflow guide.
 
-## Repos outside kickserve-de
-
-This repo is private, so only repos in `kickserve-de` can use it. Other orgs use
-their own private copy `<org>/ci` and write `uses: <org>/ci/...@v1` instead of
-`kickserve-de/ci/...@v1`. After every tag move, `move-major-tag.yml` pushes `main`
-and the newest major tag to each copy, with the self references rewritten to
-`<org>/ci/`. Never change a copy directly: the next run overwrites it.
-
-New org:
-
-1. Create the private repo `<org>/ci` (empty). Settings → Actions → General →
-   Access: "Accessible from repositories in the `<org>` organization".
-2. Fine-grained token (GitHub → Settings → Developer settings): resource owner
-   `<org>`, only the repo `ci`, Contents and Workflows read and write. Store it here
-   as repo secret `MIRROR_TOKEN_<ORG>` (upper case, `-` as `_`). A deploy key does
-   not work: GitHub rejects workflow files pushed with it. The token expires; renew
-   it and the secret before that.
-3. Add the org and secret name to the `mirror` matrix in `move-major-tag.yml`, merge,
-   and check that the run pushed to `<org>/ci`.
-
 ## Versions
 
 Repos use `@v1`. Every push to `main` runs the tests and then moves the newest
