@@ -135,16 +135,25 @@ jobs:
         name: MySQL connection
         env:
           DB_PORT: ${{ job.services.mysql.ports['3306'] }}
+        # A runner that itself runs in a container (host Docker socket) reaches
+        # the published port on the Docker host, its default gateway.
         run: |
+          host=127.0.0.1
+          if ! timeout 2 bash -c "</dev/tcp/$host/$DB_PORT" 2>/dev/null; then
+            gw=$(awk '$2 == "00000000" { print $3; exit }' /proc/net/route)
+            host=$(printf '%d.%d.%d.%d' "0x${gw:6:2}" "0x${gw:4:2}" "0x${gw:2:2}" "0x${gw:0:2}")
+            timeout 2 bash -c "</dev/tcp/$host/$DB_PORT" 2>/dev/null \
+              || { echo "::error::MySQL not reachable on 127.0.0.1 or $host port $DB_PORT"; exit 1; }
+          fi
           {
-            echo "DB_HOST=127.0.0.1"
+            echo "DB_HOST=$host"
             echo "DB_PORT=$DB_PORT"
             echo "DB_DATABASE=test"
             echo "DB_USERNAME=root"
             echo "DB_PASSWORD=test"
-            echo "DATABASE_URL=mysql://root:test@127.0.0.1:$DB_PORT/test"
+            echo "DATABASE_URL=mysql://root:test@$host:$DB_PORT/test"
           } >> "$GITHUB_ENV"
-          echo "MySQL ${{ inputs.mysql }} on 127.0.0.1:$DB_PORT"
+          echo "MySQL ${{ inputs.mysql }} on $host:$DB_PORT"
 
       # PHP extensions from ext-* in composer.json and in the locked packages (incl. dev),
       # plus php-extensions; setup-php skips the ones already built in.
