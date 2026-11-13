@@ -65,6 +65,15 @@ on:
         description: Test command; reported as the check "tests"
         type: string
         default: ''
+      test-level:
+        description: hard or soft
+        type: string
+        default: hard
+      # Services
+      mysql:
+        description: MySQL image tag for a throw-away test database (e.g. 5.7, 8.0), empty for none; the commands get DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD and DATABASE_URL
+        type: string
+        default: ''
       build:
         type: string
         default: ''
@@ -106,8 +115,45 @@ jobs:
     concurrency:
       group: pr-checks-${{ github.ref }}
       cancel-in-progress: true
+    # An empty image skips the service. The runner needs Docker; the random host
+    # port lets several jobs share one self-hosted runner host.
+    services:
+      mysql:
+        image: ${{ inputs.mysql != '' && format('mysql:{0}', inputs.mysql) || '' }}
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_DATABASE: test
+        ports:
+          - 3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ptest --silent"
+          --health-interval 2s --health-timeout 5s --health-retries 60
     steps:
       - uses: kickserve-de/ci/actions/checkout@v1
+
+      - if: inputs.mysql != ''
+        name: MySQL connection
+        env:
+          DB_PORT: ${{ job.services.mysql.ports['3306'] }}
+        # A runner that itself runs in a container (host Docker socket) reaches
+        # the published port on the Docker host, its default gateway.
+        run: |
+          host=127.0.0.1
+          if ! timeout 2 bash -c "</dev/tcp/$host/$DB_PORT" 2>/dev/null; then
+            gw=$(awk '$2 == "00000000" { print $3; exit }' /proc/net/route)
+            host=$(printf '%d.%d.%d.%d' "0x${gw:6:2}" "0x${gw:4:2}" "0x${gw:2:2}" "0x${gw:0:2}")
+            timeout 2 bash -c "</dev/tcp/$host/$DB_PORT" 2>/dev/null \
+              || { echo "::error::MySQL not reachable on 127.0.0.1 or $host port $DB_PORT"; exit 1; }
+          fi
+          {
+            echo "DB_HOST=$host"
+            echo "DB_PORT=$DB_PORT"
+            echo "DB_DATABASE=test"
+            echo "DB_USERNAME=root"
+            echo "DB_PASSWORD=test"
+            echo "DATABASE_URL=mysql://root:test@$host:$DB_PORT/test"
+          } >> "$GITHUB_ENV"
+          echo "MySQL ${{ inputs.mysql }} on $host:$DB_PORT"
 
       # PHP extensions from ext-* in composer.json and in the locked packages (incl. dev),
       # plus php-extensions; setup-php skips the ones already built in.
@@ -195,6 +241,7 @@ jobs:
         uses: kickserve-de/ci/actions/run-check@v1
         with:
           name: tests
+          level: ${{ inputs.test-level }}
           run: ${{ inputs.test }}
       - if: inputs.build != '' || inputs.build-dirs != ''
         uses: kickserve-de/ci/actions/run-check@v1
